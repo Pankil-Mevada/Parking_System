@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#142c35"><title>Vehicle Parking System</title></head>
+<body>
+<a class="skip-link" href="#main">Skip to dashboard</a>
+<aside class="sidebar" aria-label="Main navigation">
+  <a class="brand" href="#overview" aria-label="Vehicle Parking System overview"><span class="brand-mark" aria-hidden="true">P<span></span></span><span>PARKING<small>SPACE MANAGEMENT</small></span></a>
+  <p class="nav-caption">WORKSPACE</p>
+  <nav><a class="nav-item active" href="#overview"><span aria-hidden="true">▦</span> Overview</a><a class="nav-item" href="#location-section"><span aria-hidden="true">⌖</span> Locations</a><a class="nav-item" href="#preview-section"><span aria-hidden="true">◇</span> Interactive preview</a></nav>
+  <div class="sidebar-note"><span class="note-icon" aria-hidden="true">i</span><strong>Built around clarity.</strong><p>Availability at a glance. Parking records confirmed by staff.</p><span class="workspace-tag">LOCAL WORKSPACE</span></div>
+  <div class="sidebar-footer"><span class="avatar" aria-hidden="true">VP</span><span>Vehicle Parking System<small>Development workspace</small></span></div>
+</aside>
+<div class="workspace">
+  <header class="topbar"><p>Workspace <span aria-hidden="true">/</span> <strong>Overview</strong></p><span class="public-label"><span aria-hidden="true">◈</span> Public availability</span></header>
+  <main id="main" tabindex="-1">
+    <section id="overview" aria-labelledby="page-title">
+      <div class="page-heading"><div><p class="eyebrow">YOUR PARKING, AT A GLANCE</p><h1 id="page-title">A little space. A clearer view.</h1><p class="subtitle">Find availability across your parking locations.</p></div><button id="refresh" class="refresh-button" type="button"><span class="refresh-icon" aria-hidden="true">↻</span> Refresh availability</button></div>
+      <div class="toolbar"><div class="location-control"><label for="location-select">Location</label><select id="location-select" disabled><option value="all">All locations</option></select></div><span id="connection" class="connection" data-state="loading"><span class="status-dot" aria-hidden="true"></span><span id="connection-label">Loading snapshot</span></span></div>
+      <div class="hero"><div class="hero-copy"><span class="hero-label">ROOM FOR YOUR NEXT ARRIVAL</span><h2>Good parking starts<br>with knowing what’s open.</h2><p>Staff-confirmed availability. One clear overview.</p><div class="hero-availability"><strong id="hero-available">—</strong><span>spaces available<small id="hero-scope">Across your locations</small></span></div></div>
+        <div class="hero-art" aria-hidden="true"><span class="art-label">A CLEARER WAY IN</span><svg viewBox="0 0 360 230" fill="none"><path d="M30 50H330M30 178H330" stroke="#78918f" stroke-width="2"/><path d="M60 50V100H120V50M150 50V100H210V50M240 50V100H300V50M60 178V128H120V178M150 178V128H210V178M240 178V128H300V178" stroke="#a3bbb4" stroke-width="2"/><path d="M45 114H315" stroke="#a3bbb4" stroke-dasharray="12 12"/><rect x="165" y="62" width="30" height="29" rx="7" fill="#cff59d"/><path d="M170 69H190M170 83H190" stroke="#234c3a" stroke-width="3"/><path d="M85 150L90 145L95 150M90 145V162M265 76L270 81L275 76M270 81V64" stroke="#cff59d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="art-caption">Illustration · not a physical space map</span></div>
+      </div>
+      <div id="metrics" class="metrics" aria-label="Parking totals" aria-busy="true">
+        <article class="metric"><span class="metric-icon available-icon" aria-hidden="true">✓</span><p>Available spaces</p><strong id="metric-available">—</strong><span class="metric-foot">Ready for a confirmed arrival</span></article>
+        <article class="metric"><span class="metric-icon occupied-icon" aria-hidden="true">P</span><p>Occupied spaces</p><strong id="metric-occupied">—</strong><span class="metric-foot">From active parking sessions</span></article>
+        <article class="metric"><span class="metric-icon maintenance-icon" aria-hidden="true">⊘</span><p>Out of service</p><strong id="metric-maintenance">—</strong><span class="metric-foot">Excluded from capacity</span></article>
+        <article class="metric"><span class="metric-icon capacity-icon" aria-hidden="true">▦</span><p>Operational capacity</p><strong id="metric-capacity">—</strong><span class="metric-foot">Available + occupied spaces</span></article>
+      </div>
+      <p id="status" class="snapshot-status" role="status" aria-live="polite">Loading availability…</p>
+    </section>
+    <section id="location-section" class="locations-section" aria-labelledby="locations-title"><div class="section-heading"><div><p class="eyebrow">THE BIG PICTURE</p><h2 id="locations-title">Your locations</h2></div><span id="location-count" class="count-label">Loading…</span></div><div id="locations" class="location-grid" aria-label="Location availability"><p class="empty-state">Getting your latest availability snapshot…</p></div></section>
+    <section id="preview-section" class="preview-section" aria-labelledby="preview-title"><div class="preview-copy"><span class="preview-tag">INTERACTIVE DEMO · SAMPLE DATA</span><h2 id="preview-title">See a parking change in action.</h2><p>This isolated preview shows an arrival and departure. It never changes your dashboard counts or database.</p><div class="preview-actions"><button id="preview-arrival" class="primary-button" type="button">Preview arrival <span aria-hidden="true">↗</span></button><button id="preview-departure" class="secondary-button" type="button" disabled>Preview departure</button></div><p class="preview-disclaimer">Actual parking updates require authorized staff check-in/check-out. Those controls are not available on this page yet.</p></div><div id="sample-bay" class="sample-bay" data-occupied="false"><div class="bay-label"><span>DEMO BAY</span><span id="preview-state" class="bay-state">Empty</span></div><div class="bay-illustration" aria-hidden="true"><div class="bay-lines"><span>P</span><svg class="sample-car" viewBox="0 0 80 130"><rect x="8" y="6" width="64" height="118" rx="22" fill="#294e57"/><path d="M19 35Q40 26 61 35L57 52H23Z" fill="#cae2d7"/><path d="M23 87H57L60 104Q40 111 20 104Z" fill="#cae2d7"/><rect x="13" y="15" width="11" height="5" rx="2" fill="#e8f6d6"/><rect x="56" y="15" width="11" height="5" rx="2" fill="#e8f6d6"/></svg></div></div><p id="preview-message" role="status" aria-live="polite">Sample vehicle is not parked.</p><span class="sample-footnote">Preview only · no saved parking session</span></div></section>
+    <footer class="page-footer"><span>Vehicle Parking System</span><span>Snapshot availability · refresh to update</span></footer>
+  </main>
+</div>
+<script type="module" src="/frontend/main.ts"></script>
+</body></html>

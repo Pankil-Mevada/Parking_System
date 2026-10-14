@@ -1,0 +1,79 @@
+openapi: 3.0.3
+info:
+  title: VehicleParkingSystem phase 2 API
+  version: 0.1.0
+  description: Local scaffold. Public aggregates only; authenticated operations are not implemented.
+servers:
+  - url: http://127.0.0.1:8080
+paths:
+  /api/health:
+    get:
+      operationId: health
+      responses:
+        '200':
+          description: Process responds; does not imply database readiness.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: {type: string, enum: [ok]}
+  /api/ready:
+    get:
+      operationId: ready
+      responses:
+        '200':
+          description: Database reachable and migration 001 recorded.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: {type: string, enum: [ready]}
+        '503':
+          description: Database or migration unavailable.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: {type: string, enum: [not_ready]}
+  /api/locations:
+    get:
+      operationId: listPublicAvailability
+      description: At most 100 locations ordered by name and ID. Aggregate snapshot only.
+      responses:
+        '200':
+          description: Aggregate availability; operational capacity excludes out-of-service spaces.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [locations, timestamp]
+                properties:
+                  timestamp: {type: string, format: date-time}
+                  locations:
+                    type: array
+                    maxItems: 100
+                    items:
+                      type: object
+                      required: [id, name, capacity, occupied, available, outOfService]
+                      properties:
+                        id: {type: string, format: uuid}
+                        name: {type: string}
+                        capacity: {type: integer, minimum: 0}
+                        occupied: {type: integer, minimum: 0}
+                        available: {type: integer, minimum: 0}
+                        outOfService: {type: integer, minimum: 0}
+        '503':
+          description: Availability query unavailable.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error: {type: string, enum: [availability_unavailable]}
