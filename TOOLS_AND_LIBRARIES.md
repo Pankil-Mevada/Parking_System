@@ -1,3 +1,22 @@
+# Phase 3–4 additions
+
+- Keycloak 26.8.1: maintained external authentication provider for email verification,
+  recovery, OTP and sessions; local container pinned by digest in Compose.
+- keycloak-js 26.2.4: official browser adapter; authorization code with PKCE and
+  tokens in memory; exact package and pnpm lockfile.
+- Nginx 1.30.5: pinned stable image; local login/recovery request limits.
+- Mailpit 1.27.8: pinned local mail capture; verification/recovery tests never send
+  mail outside this computer.
+- libpq/OpenSSL: existing native dependencies now explicitly linked for parameterized
+  PostgreSQL transactions and SHA-256 idempotency hashing.
+- Psycopg/psycopg-binary 3.3.6 and Windows tzdata 2026.5: test-only pinned Python
+  dependencies installed under ignored `.tools/test-python`.
+
+See [current setup](docs/PHASE_3_4.md). The inventory below records the earlier
+phase 1–2 installation and native Windows status.
+
+---
+
 # VehicleParkingSystem — tools and libraries
 
 Inventory checked on 14 October 2026. This document applies only to the independent

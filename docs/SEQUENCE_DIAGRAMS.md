@@ -1,5 +1,8 @@
 # Execution sequence diagrams
 
+Historical phase 1–2 reference. Phases 3–4 have since been implemented; current
+identity and transaction sequences are in [the phase 3–4 reference](PHASE_3_4.md).
+
 Sections marked **Current** describe runnable code. Sections marked **Planned**
 are required designs for later phases, not existing endpoints or test evidence.
 

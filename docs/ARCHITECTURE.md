@@ -1,5 +1,8 @@
 # Architecture and implementation status
 
+Historical phase 1–2 reference. For the current implemented authentication and
+transactional parking architecture, see [phases 3–4](PHASE_3_4.md).
+
 ## Scope
 
 The application manages parking records for one operator with multiple locations.

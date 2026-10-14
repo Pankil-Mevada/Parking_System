@@ -1,0 +1,4 @@
+# Test-only PostgreSQL driver, including a matching binary distribution.
+psycopg==3.3.6
+psycopg-binary==3.3.6
+tzdata==2026.5; sys_platform == 'win32'

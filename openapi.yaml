@@ -1,79 +1,1302 @@
-openapi: 3.0.3
-info:
-  title: VehicleParkingSystem phase 2 API
-  version: 0.1.0
-  description: Local scaffold. Public aggregates only; authenticated operations are not implemented.
-servers:
-  - url: http://127.0.0.1:8080
-paths:
-  /api/health:
-    get:
-      operationId: health
-      responses:
-        '200':
-          description: Process responds; does not imply database readiness.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [status]
-                properties:
-                  status: {type: string, enum: [ok]}
-  /api/ready:
-    get:
-      operationId: ready
-      responses:
-        '200':
-          description: Database reachable and migration 001 recorded.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [status]
-                properties:
-                  status: {type: string, enum: [ready]}
-        '503':
-          description: Database or migration unavailable.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [status]
-                properties:
-                  status: {type: string, enum: [not_ready]}
-  /api/locations:
-    get:
-      operationId: listPublicAvailability
-      description: At most 100 locations ordered by name and ID. Aggregate snapshot only.
-      responses:
-        '200':
-          description: Aggregate availability; operational capacity excludes out-of-service spaces.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [locations, timestamp]
-                properties:
-                  timestamp: {type: string, format: date-time}
-                  locations:
-                    type: array
-                    maxItems: 100
-                    items:
-                      type: object
-                      required: [id, name, capacity, occupied, available, outOfService]
-                      properties:
-                        id: {type: string, format: uuid}
-                        name: {type: string}
-                        capacity: {type: integer, minimum: 0}
-                        occupied: {type: integer, minimum: 0}
-                        available: {type: integer, minimum: 0}
-                        outOfService: {type: integer, minimum: 0}
-        '503':
-          description: Availability query unavailable.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [error]
-                properties:
-                  error: {type: string, enum: [availability_unavailable]}
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "VehicleParkingSystem phase 3-4 API",
+    "version": "0.2.0",
+    "description": "C++ API with Keycloak authentication. Browser authorization-code PKCE; tokens remain in memory. API does not authenticate cookies. Provider login/registration/recovery routes belong to Keycloak, not this contract."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:8080"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/api/health": {
+      "get": {
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ok"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/ready": {
+      "get": {
+        "operationId": "ready",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ready"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "description": "Database or migration 002 unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "not_ready"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/locations": {
+      "get": {
+        "operationId": "publicAvailability",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "locations": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Location"
+                      }
+                    },
+                    "timestamp": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "locations",
+                    "timestamp"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [],
+        "description": "Public aggregate-only snapshot, at most 100 locations. No owner or registration fields."
+      }
+    },
+    "/api/auth/config": {
+      "get": {
+        "operationId": "identityConfiguration",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    },
+                    "realm": {
+                      "type": "string"
+                    },
+                    "clientId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url",
+                    "realm",
+                    "clientId"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/me": {
+      "get": {
+        "operationId": "currentUser",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "mfa": {
+                      "type": "boolean"
+                    },
+                    "assignments": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "locationId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "attendant",
+                              "operator_admin"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "locationId",
+                          "role"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "mfa",
+                    "assignments"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "operationId": "revokeLocalSession",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "loggedOut": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "loggedOut"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/me/vehicle": {
+      "get": {
+        "operationId": "ownVehicle",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "vehicle": {
+                      "allOf": [
+                        {
+                          "$ref": "#/components/schemas/Vehicle"
+                        }
+                      ],
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "vehicle"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "put": {
+        "operationId": "replaceOrDisableOwnVehicle",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "vehicle": {
+                      "allOf": [
+                        {
+                          "$ref": "#/components/schemas/Vehicle"
+                        }
+                      ],
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "vehicle"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/VehicleRegistration"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "disabled": {
+                        "type": "boolean",
+                        "enum": [
+                          true
+                        ]
+                      }
+                    },
+                    "required": [
+                      "disabled"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/parking-session": {
+      "get": {
+        "operationId": "ownActiveSession",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "session": {
+                      "allOf": [
+                        {
+                          "$ref": "#/components/schemas/Session"
+                        }
+                      ],
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "session"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/me/parking-history": {
+      "get": {
+        "operationId": "ownHistory",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sessions": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Session"
+                      }
+                    }
+                  },
+                  "required": [
+                    "sessions"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 999999
+            },
+            "description": "50 records per page ordered by arrival descending."
+          }
+        ]
+      }
+    },
+    "/api/staff/check-ins": {
+      "post": {
+        "operationId": "staffCheckIn",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "session": {
+                      "$ref": "#/components/schemas/Session"
+                    }
+                  },
+                  "required": [
+                    "session"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "vehicleId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "spaceId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "vehicleId",
+                  "spaceId"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "description": "Atomic session, audit, outbox and idempotency result. Same actor/key/body replays original response. Different body conflicts."
+      }
+    },
+    "/api/staff/sessions/{sessionId}/check-out": {
+      "post": {
+        "operationId": "staffCheckOut",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "session": {
+                      "$ref": "#/components/schemas/Session"
+                    }
+                  },
+                  "required": [
+                    "session"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ]
+      }
+    },
+    "/api/staff/locations/{locationId}/spaces": {
+      "get": {
+        "operationId": "staffLocationSpaces",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "spaces": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "operational_status": {
+                            "type": "string"
+                          },
+                          "session_id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "nullable": true
+                          },
+                          "registration_snapshot": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "checked_in_at": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "display_name": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "email": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "occupancy": {
+                            "type": "string",
+                            "enum": [
+                              "empty",
+                              "occupied"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "label",
+                          "operational_status",
+                          "session_id",
+                          "registration_snapshot",
+                          "checked_in_at",
+                          "display_name",
+                          "email",
+                          "occupancy"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "spaces"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "locationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "description": "MFA plus assigned-location role required. At most 500 spaces. Personal-data read is audited."
+      }
+    },
+    "/api/admin/spaces/{spaceId}/status": {
+      "put": {
+        "operationId": "setOperationalStatus",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "enabled",
+                        "out_of_service"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "enabled",
+                      "out_of_service"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "status",
+                  "reason"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "spaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/api/admin/locations/{locationId}/staff": {
+      "post": {
+        "operationId": "assignOrRemoveStaff",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "role": {
+                      "type": "string",
+                      "enum": [
+                        "attendant",
+                        "operator_admin",
+                        "none"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "role"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "userId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "attendant",
+                      "operator_admin",
+                      "none"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "userId",
+                  "role",
+                  "reason"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "locationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "Location": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "capacity": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "occupied": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "available": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "outOfService": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "capacity",
+          "occupied",
+          "available",
+          "outOfService"
+        ],
+        "additionalProperties": false
+      },
+      "Vehicle": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "nullable": false
+          },
+          "user_id": {
+            "type": "string",
+            "nullable": false
+          },
+          "registration_jurisdiction": {
+            "type": "string",
+            "nullable": false
+          },
+          "normalized_registration": {
+            "type": "string",
+            "nullable": false
+          },
+          "vehicle_type": {
+            "type": "string",
+            "nullable": false
+          },
+          "make": {
+            "type": "string",
+            "nullable": true
+          },
+          "model": {
+            "type": "string",
+            "nullable": true
+          },
+          "color": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "registration_jurisdiction",
+          "normalized_registration",
+          "vehicle_type",
+          "make",
+          "model",
+          "color"
+        ],
+        "additionalProperties": false
+      },
+      "Session": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "vehicle_id": {
+            "type": "string"
+          },
+          "space_id": {
+            "type": "string"
+          },
+          "checked_in_at": {
+            "type": "string"
+          },
+          "checked_out_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "registration_snapshot": {
+            "type": "string"
+          },
+          "registration_jurisdiction_snapshot": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "vehicle_id",
+          "space_id",
+          "checked_in_at",
+          "checked_out_at",
+          "registration_snapshot",
+          "registration_jurisdiction_snapshot"
+        ],
+        "additionalProperties": false
+      },
+      "VehicleRegistration": {
+        "type": "object",
+        "properties": {
+          "registrationJurisdiction": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "registration": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "vehicleType": {
+            "type": "string",
+            "enum": [
+              "car",
+              "motorcycle",
+              "van"
+            ]
+          },
+          "make": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "color": {
+            "type": "string",
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "registrationJurisdiction",
+          "registration",
+          "vehicleType"
+        ],
+        "additionalProperties": false
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "responses": {
+      "Error": {
+        "description": "Safe error; protected responses include X-Request-ID. 401 identity, 403 role/location/origin, 409 uniqueness/idempotency/state conflict, 503 provider/database/transaction unavailable.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    }
+  }
+}

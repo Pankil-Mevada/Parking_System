@@ -1,5 +1,8 @@
 # Checkpoint review and verification
 
+Historical phase 1–2 review. Current phase 3–4 verification is recorded in
+[the current implementation reference](PHASE_3_4.md).
+
 Review date: 2026-10-14. Scope: this parking repository's current uncommitted
 application scaffold, dashboard, database schema, tooling and documentation.
 This is a source review and local verification, not an independent security audit.

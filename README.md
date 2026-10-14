@@ -1,5 +1,22 @@
 # VehicleParkingSystem
 
+**Current: phases 3–4 add Keycloak authentication/MFA, scoped roles, real vehicle
+registration and transactional staff parking APIs with idempotency.** Follow
+[phase 3–4 setup, architecture and test instructions](docs/PHASE_3_4.md) first.
+The phase 1–2 setup and verification history below is retained for context; the
+database now needs migration 002 and the identity services. Full role dashboards
+and realtime delivery remain later phases.
+
+After the phase 3–4 setup in that guide, use Python commands:
+
+```powershell
+py scripts/start_dev.py
+# Keep startup running; use a second terminal for checks:
+py -m pip install --target .tools/test-python -r requirements-test.txt
+py scripts/test_phase34.py
+py scripts/test_system.py
+```
+
 Engineering reference: [architecture and data model](docs/ARCHITECTURE.md),
 [sequence diagrams](docs/SEQUENCE_DIAGRAMS.md),
 [software design concepts](docs/SOFTWARE_DESIGN.md), and
@@ -162,9 +179,10 @@ shows local time. Registration snapshots and checkout history are protected by a
 Partial unique indexes enforce one enabled vehicle per user, unique enabled registration
 within jurisdiction, and one active session per user/vehicle/space even under concurrent SQL.
 
-Normalization, disabled-user/vehicle eligibility, compatibility, maintenance coordination,
-role enforcement and vehicle replacement locks are **phase 3–4 work**, not guarantees from
-this scaffold. Do not give drivers or staff direct database access.
+Phases 3–4 now implement normalization, eligibility, compatibility, maintenance
+coordination, roles and vehicle replacement locks in the protected API. These
+business policies still require that API; database uniqueness alone is not the
+whole workflow. Do not give drivers or staff direct database access.
 
 ## Native backend alternative
 
@@ -233,11 +251,13 @@ restore drills and rollback procedures remain phase 7 work. No deployment comman
 there is no production deployment configuration yet. `pnpm build` produces frontend artifacts
 only; a production reverse proxy, TLS and artifact rollout are not configured.
 
-Only public aggregate endpoints and health/readiness are implemented (see `openapi.yaml`).
+Public aggregates, identity configuration and protected phase 3–4 endpoints are
+implemented (see `openapi.yaml` and `docs/PHASE_3_4.md`).
 The location list is capped at 100; pagination is required before larger installations.
-Authentication/recovery/MFA, protected roles and dashboards, vehicle APIs, parking actions,
-idempotency handling, administrative corrections, audit write protection, durable SSE,
-request IDs, abuse controls, privacy controls and production observability remain future phases.
+Full role dashboards, administrative corrections, audit write protection, durable
+SSE, production privacy controls and observability remain future phases. Identity,
+vehicle and parking APIs, idempotency, protected request IDs and local identity
+abuse controls are now implemented and tested.
 No public response includes owner or registration data. SSE is not implemented.
 
 ## Verification recorded on 2026-10-14

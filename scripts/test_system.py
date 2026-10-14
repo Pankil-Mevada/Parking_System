@@ -40,7 +40,7 @@ def main():
         run()
         print(f'PASS: {name}', flush=True)
     print('\nAll phase 1-2 checks passed. Keep the startup terminal open to keep the website available.')
-    print('These tests do not start the website. Login, parking actions and realtime behavior are later phases, not covered here.')
+    print('These tests do not start the website. Run py scripts/test_phase34.py for authentication, parking concurrency and rollback checks. Realtime remains a later phase.')
 
 
 if __name__ == '__main__':

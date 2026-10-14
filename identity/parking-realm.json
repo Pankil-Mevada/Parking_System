@@ -1,0 +1,51 @@
+{
+  "realm": "parking", "enabled": true, "sslRequired": "external",
+  "registrationAllowed": true, "registrationEmailAsUsername": true,
+  "verifyEmail": true, "resetPasswordAllowed": true,
+  "loginWithEmailAllowed": true, "duplicateEmailsAllowed": false,
+  "bruteForceProtected": true, "permanentLockout": false,
+  "failureFactor": 5, "waitIncrementSeconds": 30, "maxFailureWaitSeconds": 900,
+  "accessTokenLifespan": 300, "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 43200, "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "passwordPolicy": "length(12) and notUsername(undefined) and notEmail(undefined)",
+  "smtpServer": {"host": "mail", "port": "1025", "from": "parking@example.test", "auth": "false", "ssl": "false", "starttls": "false"},
+  "browserFlow": "parking-mfa",
+  "resetCredentialsFlow": "parking-reset",
+  "authenticatorConfig": [
+    {"alias": "password-reference", "config": {"default.reference.value": "pwd", "default.reference.maxAge": "43200"}},
+    {"alias": "otp-reference", "config": {"default.reference.value": "otp", "default.reference.maxAge": "43200"}}
+  ],
+  "authenticationFlows": [{
+    "alias": "parking-reset", "description": "Email password recovery preserves enrolled OTP; lost MFA requires reviewed support recovery",
+    "providerId": "basic-flow", "topLevel": true, "builtIn": false,
+    "authenticationExecutions": [
+      {"authenticator": "reset-credentials-choose-user", "requirement": "REQUIRED", "priority": 10, "authenticatorFlow": false},
+      {"authenticator": "reset-credential-email", "requirement": "REQUIRED", "priority": 20, "authenticatorFlow": false},
+      {"authenticator": "reset-password", "requirement": "REQUIRED", "priority": 30, "authenticatorFlow": false}
+    ]
+  }, {
+    "alias": "parking-mfa", "description": "Password plus required OTP; no cookie-only bypass",
+    "providerId": "basic-flow", "topLevel": true, "builtIn": false,
+    "authenticationExecutions": [
+      {"authenticator": "auth-username-password-form", "authenticatorConfig": "password-reference", "requirement": "REQUIRED", "priority": 10, "authenticatorFlow": false, "userSetupAllowed": false},
+      {"authenticator": "auth-otp-form", "authenticatorConfig": "otp-reference", "requirement": "REQUIRED", "priority": 20, "authenticatorFlow": false, "userSetupAllowed": true}
+    ]
+  }],
+  "clients": [
+    {
+      "clientId": "parking-web", "publicClient": true,
+      "standardFlowEnabled": true, "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "redirectUris": ["http://127.0.0.1:5173/*"],
+      "webOrigins": ["http://127.0.0.1:5173"],
+      "attributes": {"pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "http://127.0.0.1:5173/*"},
+      "defaultClientScopes": ["basic", "web-origins", "profile", "email", "acr"],
+      "protocolMappers": [
+        {"name": "parking-audience", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper", "config": {"included.client.audience": "parking-api", "access.token.claim": "true", "id.token.claim": "false"}},
+        {"name": "actual-authentication-methods", "protocol": "openid-connect", "protocolMapper": "oidc-amr-mapper", "config": {"access.token.claim": "true", "id.token.claim": "true"}}
+      ]
+    },
+    {"clientId": "parking-api", "publicClient": false, "secret": "${OIDC_CLIENT_SECRET}", "standardFlowEnabled": false, "directAccessGrantsEnabled": false, "serviceAccountsEnabled": false}
+  ]
+}

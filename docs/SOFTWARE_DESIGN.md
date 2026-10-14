@@ -1,5 +1,8 @@
 # Software design concepts applied to this project
 
+Historical phase 1–2 reference. Read [the current phase 3–4 design](PHASE_3_4.md)
+for authentication, roles, transactions and idempotency that are now implemented.
+
 This guide covers concepts relevant to the current code and required parking
 design. It is not an exhaustive textbook or a claim that future safeguards exist.
 See [architecture](ARCHITECTURE.md) and [execution diagrams](SEQUENCE_DIAGRAMS.md).

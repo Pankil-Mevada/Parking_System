@@ -1,9 +1,20 @@
+# Current authentication and parking tests
+
+For phases 3–4, use [the current setup and test guide](docs/PHASE_3_4.md).
+After installing its test prerequisites, run `py scripts/test_phase34.py`.
+It tests real provider login/MFA, separate PostgreSQL connections, competing parking
+requests, location permissions, idempotency and rollback in disposable test services.
+The phase 1–2 guide below remains useful for the public page and scaffold runner.
+
+---
+
 # Test phases 1 and 2
 
 These phases cover project inspection, architecture choice and a runnable scaffold:
 TypeScript frontend, C++ API, PostgreSQL schema/migrations, local setup and documentation.
-Login, vehicle registration screens, check-in/check-out, full role dashboards and realtime
-updates are later phases. The available page is a public aggregate snapshot.
+Login and vehicle registration were later work at this checkpoint and are now
+implemented as described above. Full role dashboards and realtime remain later
+phases. The public availability page still shows an aggregate snapshot.
 
 Tests are checks that catch different problems. No single test proves the whole product works:
 
@@ -74,7 +85,8 @@ Click **Refresh availability**: the last-updated time should change and the coun
 should stay the same. Press Tab to focus the refresh button, then Enter to refresh.
 Inspect a narrow browser window: text and cards should fit without horizontal scrolling.
 The page should describe its data as a snapshot, with no claim of live occupancy updates.
-There is no login, vehicle registration or parking-action UI yet.
+The current account section supports login and own-vehicle registration. Staff
+parking actions are currently APIs; their full dashboard controls remain phase 5.
 
 The redesigned dashboard also has a separate **Interactive demo · Sample data** section.
 Click **Preview arrival**: its demo bay becomes Occupied and shows a sample car. Click

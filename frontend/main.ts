@@ -1,4 +1,5 @@
 import './style.css';
+import './account';
 type Location = { id: string; name: string; capacity: number; occupied: number; available: number; outOfService: number };
 type Snapshot = { locations: Location[]; timestamp: string };
 const status = document.querySelector<HTMLParagraphElement>('#status')!;

@@ -29,6 +29,20 @@
     </section>
     <section id="location-section" class="locations-section" aria-labelledby="locations-title"><div class="section-heading"><div><p class="eyebrow">THE BIG PICTURE</p><h2 id="locations-title">Your locations</h2></div><span id="location-count" class="count-label">Loading…</span></div><div id="locations" class="location-grid" aria-label="Location availability"><p class="empty-state">Getting your latest availability snapshot…</p></div></section>
     <section id="preview-section" class="preview-section" aria-labelledby="preview-title"><div class="preview-copy"><span class="preview-tag">INTERACTIVE DEMO · SAMPLE DATA</span><h2 id="preview-title">See a parking change in action.</h2><p>This isolated preview shows an arrival and departure. It never changes your dashboard counts or database.</p><div class="preview-actions"><button id="preview-arrival" class="primary-button" type="button">Preview arrival <span aria-hidden="true">↗</span></button><button id="preview-departure" class="secondary-button" type="button" disabled>Preview departure</button></div><p class="preview-disclaimer">Actual parking updates require authorized staff check-in/check-out. Those controls are not available on this page yet.</p></div><div id="sample-bay" class="sample-bay" data-occupied="false"><div class="bay-label"><span>DEMO BAY</span><span id="preview-state" class="bay-state">Empty</span></div><div class="bay-illustration" aria-hidden="true"><div class="bay-lines"><span>P</span><svg class="sample-car" viewBox="0 0 80 130"><rect x="8" y="6" width="64" height="118" rx="22" fill="#294e57"/><path d="M19 35Q40 26 61 35L57 52H23Z" fill="#cae2d7"/><path d="M23 87H57L60 104Q40 111 20 104Z" fill="#cae2d7"/><rect x="13" y="15" width="11" height="5" rx="2" fill="#e8f6d6"/><rect x="56" y="15" width="11" height="5" rx="2" fill="#e8f6d6"/></svg></div></div><p id="preview-message" role="status" aria-live="polite">Sample vehicle is not parked.</p><span class="sample-footnote">Preview only · no saved parking session</span></div></section>
+    <section id="account-section" class="locations-section" aria-labelledby="account-title">
+      <h2 id="account-title">Your account and vehicle</h2>
+      <p id="account-message" role="status">Connecting to account service…</p>
+      <button id="account-login" class="primary-button" type="button" disabled>Sign in / register</button>
+      <button id="account-logout" class="secondary-button" type="button" hidden>Sign out</button>
+      <form id="vehicle-form" hidden>
+        <p><label>Registration jurisdiction <input name="registrationJurisdiction" maxlength="64" required autocomplete="off"></label></p>
+        <p><label>Vehicle registration <input name="registration" maxlength="64" required autocomplete="off"></label></p>
+        <p><label>Vehicle type <select name="vehicleType"><option value="car">Car</option><option value="motorcycle">Motorcycle</option><option value="van">Van</option></select></label></p>
+        <p><label>Make <input name="make" maxlength="100"></label> <label>Model <input name="model" maxlength="100"></label> <label>Color <input name="color" maxlength="100"></label></p>
+        <button class="primary-button" type="submit">Save registered vehicle</button>
+      </form>
+      <pre id="account-vehicle" style="white-space:pre-wrap;overflow-wrap:anywhere" aria-live="polite"></pre>
+    </section>
     <footer class="page-footer"><span>Vehicle Parking System</span><span>Snapshot availability · refresh to update</span></footer>
   </main>
 </div>

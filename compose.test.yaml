@@ -1,0 +1,30 @@
+# Explicit isolated test services: no connection to the development parking DB.
+services:
+  test-db:
+    image: postgres:17-bookworm@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826
+    profiles: [phase34]
+    environment:
+      POSTGRES_DB: parking_test
+      POSTGRES_USER: parking_test
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Configure .env}
+    ports: ["127.0.0.1:15432:5432"]
+    tmpfs: ["/var/lib/postgresql/data"]
+    volumes: ["./database:/workspace/database:ro"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U parking_test -d parking_test"]
+      interval: 2s
+      retries: 30
+  test-api:
+    image: vehicle-parking-system-api:latest
+    profiles: [phase34]
+    environment:
+      API_DATABASE_URL: host=test-db port=5432 dbname=parking_test user=parking_test password=${POSTGRES_PASSWORD} connect_timeout=3
+      OIDC_INTERNAL_URL: http://identity:8080
+      OIDC_REALM: parking-tests
+      OIDC_ISSUER: http://127.0.0.1:8180/realms/parking-tests
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
+      APP_ORIGIN: http://127.0.0.1:5173
+    ports: ["127.0.0.1:18080:8080"]
+    depends_on:
+      test-db:
+        condition: service_healthy

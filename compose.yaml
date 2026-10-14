@@ -21,9 +21,33 @@ services:
       dockerfile: backend/Dockerfile
     environment:
       API_DATABASE_URL: ${API_DATABASE_URL:?Set API_DATABASE_URL}
+      OIDC_INTERNAL_URL: http://identity:8080
+      OIDC_REALM: parking
+      OIDC_ISSUER: http://127.0.0.1:8180/realms/parking
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?Run py scripts/setup_auth.py}
+      APP_ORIGIN: http://127.0.0.1:5173
     ports: ["127.0.0.1:8080:8080"]
     depends_on:
       db:
         condition: service_healthy
+  identity:
+    image: quay.io/keycloak/keycloak:26.8.1@sha256:79c623a22abacf3fe6c00a5fb30f5b7843d717b234033b80995891c06116d244
+    command: ["start-dev", "--import-realm", "--hostname", "http://127.0.0.1:8180"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${OIDC_ADMIN_USER:?Run py scripts/setup_auth.py}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${OIDC_ADMIN_PASSWORD:?Run py scripts/setup_auth.py}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?Run py scripts/setup_auth.py}
+    volumes:
+      - identity_data:/opt/keycloak/data
+      - ./identity/parking-realm.json:/opt/keycloak/data/import/parking-realm.json:ro
+  identity-gateway:
+    image: nginx:stable-alpine@sha256:0985e772fb9f729e6fa0980da05fca5d9c468e870eed43071545afa9d2e27d94
+    ports: ["127.0.0.1:8180:8080"]
+    volumes: ["./identity/gateway.conf:/etc/nginx/conf.d/default.conf:ro"]
+    depends_on: [identity]
+  mail:
+    image: axllent/mailpit:v1.27.8@sha256:6abc8e633df15eaf785cfcf38bae48e66f64beecdc03121e249d0f9ec15f0707
+    ports: ["127.0.0.1:8025:8025"]
 volumes:
   parking_data:
+  identity_data:
