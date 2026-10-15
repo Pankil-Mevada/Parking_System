@@ -111,7 +111,7 @@ class Phase34(unittest.TestCase):
             code, body = api(token, '/api/me')
             if code != 200:
                 raise AssertionError('Real provider authentication failed: ' + str((code, body)))
-            if not body['mfa']:
+            if not body['mfa'] and os.environ.get('PARKING_TEST_PASSWORD_ONLY')!='1':
                 raise AssertionError('Actual OTP authentication was not represented in the token')
             cls.users.append(body['id'])
         cls.staff, cls.other_staff, cls.driver, cls.driver2, cls.admin, cls.outsider = cls.tokens
@@ -125,9 +125,9 @@ class Phase34(unittest.TestCase):
         schema=('run_'+self.run_id.replace('-','')[:12]+'_'+self._testMethodName)[:63]
         self.db.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(schema)))
         self.db.execute(sql.SQL('SET search_path TO {},public').format(sql.Identifier(schema)))
-        for migration in ('001_initial.sql','002_identity.sql','003_delivery.sql'):
+        for migration in ('001_initial.sql','002_identity.sql','003_delivery.sql','004_client_health.sql','005_staff_accounts.sql'):
             self.db.execute((ROOT/'database/migrations'/migration).read_text(encoding='utf-8'))
-        self.db.execute("CREATE TABLE schema_migrations(version text PRIMARY KEY); INSERT INTO schema_migrations VALUES('001'),('002'),('003')")
+        self.db.execute("CREATE TABLE schema_migrations(version text PRIMARY KEY); INSERT INTO schema_migrations VALUES('001'),('002'),('003'),('004'),('005')")
         for index,user in enumerate(self.identities):
             self.db.execute('INSERT INTO users(id,identity_provider_reference,display_name,email) VALUES(%s,%s,%s,%s)',
                             (self.users[index],IDENTITY+'/realms/'+REALM+'|'+user['id'],'Synthetic Test',user['username']))
@@ -152,6 +152,7 @@ class Phase34(unittest.TestCase):
         for index, space in enumerate(self.spaces):
             self.db.execute("INSERT INTO spaces(id,location_id,label,supported_vehicle_type) VALUES(%s,%s,%s,'car')", (space,self.location if index < 2 else self.other_location,str(index)))
         for index, role in [(0,'attendant'),(1,'attendant'),(4,'operator_admin')]:
+            self.db.execute('INSERT INTO staff_accounts(email,user_id,location_id,created_by) SELECT lower(email),id,%s,id FROM users WHERE id=%s',(self.location,self.users[index]))
             self.db.execute('INSERT INTO staff_assignments(user_id,location_id,role) VALUES(%s,%s,%s)', (self.users[index],self.location,role))
         self.v1 = self.register(self.driver, ' A-b 123 ')
         self.v2 = self.register(self.driver2, 'SECOND')
@@ -251,6 +252,7 @@ class Phase34(unittest.TestCase):
         self.assertEqual(api(self.staff,f'/api/staff/locations/{self.other_location}/spaces')[0],403)
         self.assertEqual(api(self.driver,f'/api/staff/locations/{self.location}/spaces')[0],403)
         self.assertEqual(api(self.staff,f'/api/admin/spaces/{self.spaces[0]}/status','PUT',{'status':'out_of_service','reason':'Test'})[0],403)
+        self.db.execute('INSERT INTO staff_accounts(email,user_id,location_id,created_by) SELECT lower(email),id,%s,id FROM users WHERE id=%s',(self.other_location,self.users[5]))
         self.db.execute('INSERT INTO staff_assignments(user_id,location_id,role) VALUES(%s,%s,\'attendant\')',(self.users[5],self.other_location))
         _,body=self.checkin()
         self.assertEqual(self.checkout(body['session']['id'],self.outsider)[0],403)
@@ -348,6 +350,7 @@ class Phase34(unittest.TestCase):
         self.assertEqual((code,body['error']),(403,'staff_mfa_required'))
 
     def test_19_staff_assignment_administration_is_scoped(self):
+        self.db.execute('INSERT INTO staff_accounts(email,user_id,location_id,created_by) SELECT lower(email),id,%s,id FROM users WHERE id=%s',(self.location,self.users[5]))
         path=f'/api/admin/locations/{self.location}/staff'
         body={'userId':self.users[5],'role':'attendant','reason':'Synthetic assignment'}
         self.assertEqual(api(self.staff,path,'POST',body)[0],403)
@@ -442,7 +445,11 @@ class Phase34(unittest.TestCase):
         try:
             access=login(create_user('expire-'+secrets.token_hex(6)))['access_token']
         finally:
-            request(base+'/'+client['id'],{'attributes':attributes},token,method='PUT')
+            # Keycloak merges client attributes; omitting a previously added key
+            # does not reliably remove it. Restore an explicit test-realm lifetime
+            # so subsequent real-browser accounts do not inherit one-second tokens.
+            restored=dict(attributes,**{'access.token.lifespan':attributes.get('access.token.lifespan','1800')})
+            request(base+'/'+client['id'],{'attributes':restored},token,method='PUT')
         encoded=access.split('.')[1]
         claims=json.loads(base64.urlsafe_b64decode(encoded+'='*(-len(encoded)%4)))
         self.assertLessEqual(claims['exp']-claims['iat'],2)
@@ -604,6 +611,131 @@ class Phase34(unittest.TestCase):
         self.feed(self.driver)
         self.assertEqual(self.scalar('SELECT count(*) FROM delivery_events'),before)
 
+
+    def test_38_driver_cannot_be_promoted_or_listed_as_staff(self):
+        base=f'/api/admin/locations/{self.location}'
+        email=self.db.execute('SELECT email FROM users WHERE id=%s',(self.users[2],)).fetchone()[0]
+        self.assertEqual(api(self.driver,'/api/me')[1]['accountType'],'driver')
+        rows=api(self.admin,base+'/staff-accounts')[1]['staffAccounts']
+        self.assertNotIn(email,[row['email'] for row in rows])
+        body={'userId':self.users[2],'role':'attendant','reason':'Must reject driver promotion'}
+        code,result=api(self.admin,base+'/staff','POST',body)
+        self.assertEqual((code,result['error']),(409,'driver_account_cannot_be_assigned_staff_role'))
+        self.assertEqual(api(self.admin,base+'/staff-accounts','POST',{'email':email,'reason':'Must not convert driver'})[0],409)
+        self.assertIsNone(self.db.execute('SELECT 1 FROM staff_assignments WHERE user_id=%s',(self.users[2],)).fetchone())
+        with self.assertRaises(psycopg.errors.ForeignKeyViolation):
+            self.db.execute("INSERT INTO staff_assignments(user_id,location_id,role) VALUES(%s,%s,'attendant')",(self.users[2],self.location))
+
+    def test_39_separate_staff_onboarding_and_authorization(self):
+        base=f'/api/admin/locations/{self.location}'
+        employee=create_user('employee-'+secrets.token_hex(6))
+        email=employee['email']
+        body={'email':email,'reason':'Dedicated employee onboarding'}
+        self.assertEqual(api(self.driver,base+'/staff-accounts','POST',body)[0],403)
+        self.assertEqual(api(self.staff,base+'/staff-accounts','POST',body)[0],403)
+        self.assertEqual(api(self.admin,f'/api/admin/locations/{self.other_location}/staff-accounts','POST',body)[0],403)
+        self.assertEqual(api(self.admin,base+'/staff-accounts','POST',body)[0],200)
+        self.assertEqual(api(self.admin,base+'/staff-accounts','POST',body)[0],409)
+        access=login(employee)['access_token']
+        code,me=api(access,'/api/me');self.assertEqual(code,200)
+        self.assertEqual(me['accountType'],'staff');self.assertEqual(me['assignments'],[])
+        self.assertEqual(api(access,f'/api/staff/locations/{self.location}/spaces')[0],403)
+        code,result=api(access,'/api/me/vehicle','PUT',{'registrationJurisdiction':'TEST','registration':'STAFFCAR','vehicleType':'car'})
+        self.assertEqual((code,result['error']),(409,'staff_account_cannot_register_driver_vehicle'))
+        self.assertEqual(api(self.admin,base+'/users?email='+email)[1]['users'],[])
+        self.assertEqual(api(self.admin,base+'/staff','POST',{'userId':me['id'],'role':'attendant','reason':'Employee assigned'})[0],200)
+        self.assertEqual(api(access,f'/api/staff/locations/{self.location}/spaces')[0],200)
+        self.assertEqual(api(access,f'/api/staff/locations/{self.other_location}/spaces')[0],403)
+        self.assertEqual(api(access,base+'/staff-accounts')[0],403)
+        self.assertEqual(api(self.admin,base+'/staff','POST',{'userId':me['id'],'role':'none','reason':'Employee revoked'})[0],200)
+        self.assertEqual(api(access,f'/api/staff/locations/{self.location}/spaces')[0],403)
+        self.assertEqual(api(access,'/api/me')[1]['accountType'],'staff')
+
+    def test_40_existing_driver_identity_cannot_claim_employee_email(self):
+        base=f'/api/admin/locations/{self.location}'
+        employee=create_user('existing-driver-'+secrets.token_hex(6))
+        email=employee['email']
+        self.assertEqual(api(self.admin,base+'/staff-accounts','POST',{'email':email,'reason':'Employee email reserved'})[0],200)
+        # Represents an existing driver identity changing its email to a reserved one.
+        self.db.execute('INSERT INTO users(identity_provider_reference,email) VALUES(%s,%s)',(IDENTITY+'/realms/'+REALM+'|'+employee['id'],'previous-'+email))
+        access=login(employee)['access_token']
+        me=api(access,'/api/me')[1]
+        self.assertEqual(me['accountType'],'driver')
+        self.assertIsNone(self.db.execute('SELECT user_id FROM staff_accounts WHERE email=%s',(email,)).fetchone()[0])
+        self.assertEqual(api(self.admin,base+'/staff','POST',{'userId':me['id'],'role':'attendant','reason':'Must remain driver'})[0],409)
+
+    def test_41_duplicate_registration_has_safe_specific_error(self):
+        code,body=api(self.driver2,'/api/me/vehicle','PUT',{'registrationJurisdiction':'TEST','registration':'a-b 123','vehicleType':'car'})
+        self.assertEqual((code,body['error']),(409,'vehicle_registration_already_in_use'))
+        self.assertNotIn('email',body)
+        self.assertEqual(api(self.driver2,'/api/me/vehicle')[1]['vehicle']['id'],self.v2)
+
+    def test_43_staff_creates_driver_and_manages_driver_vehicle(self):
+        base=f'/api/staff/locations/{self.location}/drivers'
+        email='staff-created-'+secrets.token_hex(6)+'@example.test'
+        body={'email':email,'firstName':'Synthetic','lastName':'Driver'}
+        key=str(uuid.uuid4())
+        self.assertEqual(api(self.driver,base,'POST',body,key)[0],403)
+        self.assertEqual(api(self.staff,f'/api/staff/locations/{self.other_location}/drivers','POST',body,key)[0],403)
+        code,created=api(self.staff,base,'POST',body,key)
+        self.assertEqual(code,200,created);self.assertTrue(created['setupEmailSent'])
+        self.assertEqual(api(self.staff,base,'POST',body,key)[1],created)
+        self.assertEqual(api(self.staff,base,'POST',dict(body,lastName='Changed'),key)[0],409)
+        self.assertEqual(api(self.staff,base,'POST',body,str(uuid.uuid4()))[0],409)
+        owner=created['userId'];path=base+'/'+owner+'/vehicle'
+        vehicle={'registrationJurisdiction':'TEST','registration':'NEWDRIVER','vehicleType':'car','color':'White'}
+        self.assertEqual(api(self.driver,path,'PUT',vehicle)[0],403)
+        self.assertEqual(api(self.staff,f'/api/staff/locations/{self.other_location}/drivers/{owner}/vehicle','PUT',vehicle)[0],403)
+        code,saved=api(self.staff,path,'PUT',vehicle);self.assertEqual(code,200,saved)
+        self.assertEqual(saved['vehicle']['user_id'],owner)
+        found=api(self.staff,base+'?email='+email)[1]['users'];self.assertEqual(found[0]['id'],owner)
+        code,parked=self.checkin(vehicle=saved['vehicle']['id']);self.assertEqual(code,201,parked)
+        self.assertEqual(api(self.staff,path,'PUT',dict(vehicle,registration='REPLACE'))[0],409)
+        self.assertEqual(self.checkout(parked['session']['id'])[0],200)
+        self.assertEqual(api(self.staff,path,'PUT',dict(vehicle,registration='REPLACE'))[0],200)
+        self.assertEqual(self.scalar('SELECT count(*) FROM parking_sessions WHERE user_id=%s',(owner,)),1)
+
+    def test_44_staff_request_after_registration_requires_admin_assignment(self):
+        applicant=create_user('staff-applicant-'+secrets.token_hex(6))
+        access=login(applicant)['access_token'];me=api(access,'/api/me')[1]
+        self.assertEqual(me['accountType'],'driver')
+        self.assertEqual(api(access,'/api/me/staff-application','POST',{'locationId':self.location,'reason':'Employee application'})[0],200)
+        self.assertEqual(api(access,'/api/me')[1]['accountType'],'staff')
+        self.assertEqual(api(access,f'/api/staff/locations/{self.location}/spaces')[0],403)
+        self.assertEqual(api(self.admin,f'/api/admin/locations/{self.location}/staff','POST',{'userId':me['id'],'role':'attendant','reason':'Employee approved after signup'})[0],200)
+        self.assertEqual(api(access,f'/api/staff/locations/{self.location}/spaces')[0],200)
+        self.assertEqual(api(self.driver,'/api/me/staff-application','POST',{'locationId':self.location,'reason':'Driver must not convert'})[0],409)
+
+    def test_42_password_only_driver_login_and_parking_status(self):
+        import os
+        if os.environ.get('PARKING_TEST_PASSWORD_ONLY')!='1':self.skipTest('Dedicated --password-only run verifies local login mode')
+        me=api(self.staff,'/api/me')[1]
+        self.assertFalse(me['mfa']);self.assertFalse(me['staffMfaRequired'])
+        self.assertEqual(self.checkin()[0],201)
+        self.assertIsNotNone(api(self.driver,'/api/me/dashboard')[1]['current'])
+        session=api(self.driver,'/api/me/parking-session')[1]['session']['id']
+        self.assertEqual(self.checkout(session)[0],200)
+        self.assertIsNone(api(self.driver,'/api/me/dashboard')[1]['current'])
+        self.assertTrue(api(self.driver,'/api/me/parking-history')[1]['sessions'])
+        self.assertEqual(api(self.driver,f'/api/staff/locations/{self.location}/spaces')[0],403)
+        self.assertEqual(api(None,'/api/me')[0],401)
+
+    def test_45_driver_setup_email_failure_is_retryable_without_deletion(self):
+        base=f'/api/staff/locations/{self.location}/drivers'
+        email='mail-retry-'+secrets.token_hex(6)+'@example.test'
+        body={'email':email,'firstName':'Synthetic','lastName':'Mail retry'};key=str(uuid.uuid4())
+        realm_url=IDENTITY+'/admin/realms/'+REALM;admin=admin_token()
+        smtp=request(realm_url,token=admin)['smtpServer']
+        request(realm_url,{'smtpServer':dict(smtp,port='1')},admin,method='PUT')
+        try:
+            code,created=api(self.staff,base,'POST',body,key,timeout=20)
+            self.assertEqual(code,200,created);self.assertFalse(created['setupEmailSent'])
+        finally:request(realm_url,{'smtpServer':smtp},admin,method='PUT')
+        self.assertIsNotNone(self.db.execute('SELECT 1 FROM users WHERE id=%s',(created['userId'],)).fetchone())
+        code,retried=api(self.staff,base,'POST',body,key)
+        self.assertEqual(code,200,retried);self.assertTrue(retried['setupEmailSent'])
+        self.assertEqual(created['userId'],retried['userId'])
+        self.assertEqual(self.scalar('SELECT count(*) FROM users WHERE email=%s',(email,)),1)
 
 if __name__ == '__main__':
     unittest.main()

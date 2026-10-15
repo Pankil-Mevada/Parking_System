@@ -1,5 +1,49 @@
 # Architecture and implementation status
 
+Latest local identity/onboarding change: email/password login uses Keycloak's
+`parking-password` flow; OTP is optional locally via `REQUIRE_STAFF_MFA=false`.
+API authorization still checks verified identity, account status and location roles.
+Production privileged MFA remains enforced by the API. See the current manual
+workflow in [ROLE_UI_GUIDE.md](ROLE_UI_GUIDE.md).
+
+The C++ `driver_accounts` module uses a dedicated confidential Keycloak service
+account (`parking-driver-provisioner`) to create drivers and request email/password
+setup. Its secret is server-only and distinct from the introspection client secret.
+Staff can register vehicles for those drivers through the same locking/constraint
+logic used for own-driver registration; audit actors remain the staff member.
+Keycloak owns passwords, verification and action tokens. No password is collected
+by staff or stored in the parking database.
+
+Account creation spans the provider and PostgreSQL; it is not a distributed atomic
+transaction. A provider-side request marker permits retry after partial account
+creation, while actor/key/request-hash records prevent duplicate local creation or
+changed-body retries. An email failure retains the account and a false delivery
+result; same-key retry sends setup again. Email is not claimed to be exactly-once.
+The provisioning client has realm user-management privileges and needs final
+production privilege/security review before launch; no production deployment exists.
+
+```mermaid
+sequenceDiagram
+  participant Staff
+  participant API as C++ API
+  participant DB as PostgreSQL
+  participant ID as Keycloak
+  participant Mail as Local Mailpit
+  participant Driver
+  Staff->>API: Create driver (email/name + idempotency key)
+  API->>DB: Authorize location and lock request/email
+  API->>ID: Create account via server-only service client
+  API->>DB: Save driver identity, audit and retry result
+  API->>ID: Request verification/password setup email
+  ID->>Mail: Local setup email
+  Driver->>ID: Verify email and choose private password
+  Staff->>API: Register vehicle for driver
+  API->>DB: Lock owner/vehicle; enforce uniqueness; audit
+  Staff->>API: Confirm check-in/check-out
+  API->>DB: Commit session, audit and outbox
+  Driver->>API: Email/password login and own status
+```
+
 Historical phase 1–2 reference. For the current implemented authentication and
 transactional parking architecture, see [phases 3–4](PHASE_3_4.md).
 

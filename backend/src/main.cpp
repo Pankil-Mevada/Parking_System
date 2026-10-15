@@ -1,23 +1,27 @@
 #include "availability.h"
 #include "parking.h"
 #include "dashboard.h"
+#include "operations.h"
 #include <thread>
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
 
 int main() {
-    const char *connection = std::getenv("API_DATABASE_URL");
-    if (!connection || !*connection) {
+    std::string connection;
+    try {connection=parking::setting("API_DATABASE_URL");}catch(const std::exception &e){std::cerr<<e.what()<<'\n';return 1;}
+    if (connection.empty()) {
         std::cerr << "API_DATABASE_URL is required; see .env.example\n";
         return 1;
     }
     auto db = drogon::orm::DbClient::newPgClient(connection, 4);
     db->setTimeout(3.0);
     registerAvailability(db);
-    auto setting=[](const char *key) { const char *value=std::getenv(key); if(!value || !*value) throw std::runtime_error(std::string(key)+" is required"); return std::string(value); };
+    auto setting=[](const char *key) { auto value=parking::setting(key); if(value.empty()) throw std::runtime_error(std::string(key)+" is required"); return value; };
     try {
-        parking::AuthConfig auth{setting("OIDC_INTERNAL_URL"),setting("OIDC_REALM"),setting("OIDC_ISSUER"),setting("OIDC_CLIENT_SECRET"),setting("APP_ORIGIN")};
+        parking::AuthConfig auth{setting("OIDC_INTERNAL_URL"),setting("OIDC_REALM"),setting("OIDC_ISSUER"),setting("OIDC_CLIENT_SECRET"),setting("APP_ORIGIN"),parking::setting("OIDC_DRIVER_ADMIN_SECRET")};
+        if(parking::setting("APP_ENV")=="production" && (auth.origin.rfind("https://",0)!=0 || auth.issuer.rfind("https://",0)!=0))throw std::runtime_error("Production APP_ORIGIN and OIDC_ISSUER must use HTTPS");
+        parking::registerOperations(connection);
         registerProtectedApi(connection,auth);
         std::thread([url=std::string(connection)] {
             for(;;) {
@@ -37,7 +41,7 @@ int main() {
     }, {drogon::Get});
     drogon::app().registerHandler("/api/ready", [db](const drogon::HttpRequestPtr &, std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
         auto reply = std::make_shared<std::function<void(const drogon::HttpResponsePtr &)>>(std::move(callback));
-        db->execSqlAsync("SELECT version FROM schema_migrations WHERE version='003'",
+        db->execSqlAsync("SELECT version FROM schema_migrations WHERE version='005'",
             [reply](const drogon::orm::Result &rows) {
                 Json::Value body; body["status"] = rows.empty() ? "not_ready" : "ready";
                 auto response = drogon::HttpResponse::newHttpJsonResponse(body);
@@ -51,5 +55,5 @@ int main() {
             });
     }, {drogon::Get});
     drogon::app().setLogLevel(trantor::Logger::kWarn).setClientMaxBodySize(65536)
-        .addListener("0.0.0.0", 8080).setThreadNum(2).run();
+        .addListener(parking::setting("API_LISTEN_HOST","127.0.0.1"), 8080).setThreadNum(2).run();
 }

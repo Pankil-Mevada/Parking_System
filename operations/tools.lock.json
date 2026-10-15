@@ -1,0 +1,14 @@
+{
+  "age": {
+    "version": "1.3.2",
+    "repository": "FiloSottile/age",
+    "windows": {"asset": "age-v1.3.2-windows-amd64.zip", "sha256": "f48d8f8f9ebe903ab5027ed067652f2cc1db94bc206976430133b905dcd8e8c7"},
+    "linux": {"asset": "age-v1.3.2-linux-amd64.tar.gz", "sha256": "cbe24006683f8eb669266162894b9a522a1af52f2665fbc63a4bb032ed26ac10"}
+  },
+  "grype": {
+    "version": "0.120.1",
+    "repository": "anchore/grype",
+    "windows": {"asset": "grype_0.120.1_windows_amd64.zip", "sha256": "32e3c811f31822d17592908bafdc6288aaaca3d52583c479167a8dc8399ed65d"},
+    "linux": {"asset": "grype_0.120.1_linux_amd64.tar.gz", "sha256": "0a9ee97ef5ae2ee953b0a80098105052e846cdbe319a57d808b519c33cd1343d"}
+  }
+}

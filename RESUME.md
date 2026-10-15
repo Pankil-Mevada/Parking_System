@@ -1,5 +1,85 @@
 # Resume here — VehicleParkingSystem
 
+Checkpoint prepared for check-in on 2026-10-15. Use `git log -1 --oneline` for the
+exact commit containing this note. Current manual steps are in `docs/ROLE_UI_GUIDE.md`.
+Resume phase 7 from its visible blockers in `docs/PHASE_7.md`; phases 1–6 are locally
+implemented, phase 7 remains partial, and phase 8 hardware remains planned.
+
+Latest owner request: remove Microsoft/other authenticator-app requirement locally,
+keep verified email/password login, let staff create driver accounts and manage
+driver vehicles, and allow staff signup before administrator assignment.
+Implemented local `parking-password` flow with `REQUIRE_STAFF_MFA=false`; normal
+realm configured and old pending CONFIGURE_TOTP actions removed without deleting
+credentials/accounts. Strict MFA mode remains testable and production-gated.
+New staff page: **Driver accounts & vehicles**, with real Keycloak driver creation,
+Mailpit setup email, driver lookup/vehicle registration/replace/disable. Dedicated
+server-only `parking-driver-provisioner` client uses its own ignored secret. Account
+creation retries are keyed; partial provider/email failures retain accounts and
+same-key retries continue setup. New POST `/api/me/staff-application` lets an
+explicit employee request be approved by the administrator after registration;
+any driver vehicle/session history blocks conversion. No staff self-assignment.
+See updated `docs/ROLE_UI_GUIDE.md` for exact manual steps.
+Verification: strict baseline run `6259ad0a-984f-4e8e-b886-682835c83330`
+ran 45 tests: **44 passed, 1 intentionally skipped** (password-only test), 210.898s.
+Password-only run `b5a4ba1a-5fc8-4d10-846b-8543d29d9ef9`: **7 passed**, 52.957s,
+including actual Chromium setup-email/password flow, staff signup after registration,
+driver vehicle management/status, location denial and retained email-failure retry.
+Frontend build, 5 Node checks and 4 operational checks passed. Runtime audit/schema
+restrictions remain verified. No account, database or committed test record deleted.
+Final provisioning account-status lock guard rebuilt and checked in password-only
+run `f6bee67f-957e-4130-bfeb-00a207ba4887` (`test_43` passed, 5.131s). Normal local
+API is running this final image; readiness/monitor report healthy with no alerts.
+
+Vehicle-registration error improvement: duplicate enabled plate/jurisdiction now
+returns `vehicle_registration_already_in_use` with actionable UI guidance; no owner
+information or raw SQL diagnostics are exposed. Rejected replacement rollback
+verified by `test_41` (passed, 5.603s), retained run
+`170a5a3e-353e-4fbf-8aa6-9a455d8b61a6`. C++ and TypeScript builds passed.
+
+Earlier account-separation checkpoint (refined by the workflow above): migration 005 adds approved
+employee identities and a foreign key preventing staff assignments to non-employees.
+Admin pages are now **Drivers** (account/vehicle management only) and **Staff accounts**
+(approve unused email, await verified first login, select location role). Public
+registration never exposes a privilege selector. New employee vehicle registration
+is rejected; existing assignments/history are preserved. See `docs/ROLE_UI_GUIDE.md`.
+Verified run `6f48aa3d-30ff-403a-af25-3b80debb67b4`: **40 integration tests passed**
+in 162.090s, including real-browser employee onboarding/assignment, driver exclusion,
+database foreign-key rejection, cross-location denial and email-change protection.
+TypeScript/build and 5 frontend checks passed; 4 operations checks passed. Migration
+005 applied and safely reapplied locally. Runtime grants refreshed without rotating
+credentials; audit mutation/schema creation remain denied. Test realms/data retained.
+
+**Current work: phase 7 is partially implemented, not complete or launch-ready.**
+Read `docs/PHASE_7.md` and `docs/OPERATIONS_RUNBOOK.md` first. India is confirmed;
+500 concurrent users is the confirmed main load-test target.
+State/alert/incident owners remain pending. Only the
+public-read baselines have run. The 500-client local run completed 14,468 requests
+with zero errors in 31.446s (460.09 requests/s), p95 1.811s, p99 7.303s, peak 500
+in-flight requests. Authenticated/write/SSE load and staging acceptance remain.
+Report: `.tools/load-results/107890f5-cf21-4fe1-810c-0a81bc6fb958.json`.
+New local tooling: private API metrics, structured request logs, client heartbeats,
+secret-file configuration, native launcher auth configuration, checksum-pinned
+age/Grype installers, encrypted PostgreSQL backup/isolated retained restore drill,
+least-privilege runtime login and verification, bounded load runner, dependency
+scanner, release review bundles and a manual dedicated-runner CI workflow.
+No database records were deleted, no deployment performed, and no new push made.
+
+Latest regression run `5bfa2755-bdaa-478e-8041-59e6169796f4`: **37 passed** in
+161.344 seconds; local browser arrival update 0.831 seconds, peer replay 0.078 seconds.
+Operations tests: **4 passed**. Three-user provisional read load: 262 requests,
+zero errors, p95 35.124 ms. Encrypted restore verified all table counts in 31.218s,
+database `restore_860e59548b034e2e9f7c43ba0fab99fc`, retained separately.
+This restore excludes Keycloak H2. Runtime-role checks deny audit mutation/schema creation.
+API image dependency scan **failed**: raw Grype matches include 8 critical and
+90 high matches (not independently confirmed exploitability); pnpm audit passed.
+Reports retained at `.tools/security-results/e5659983-e859-4d65-86a9-02c1d1d1e439`.
+
+Resume priorities: triage/remediate container findings; finish full identity recovery,
+production TLS/secret configuration and staging rollback verification; activate CI
+with lint/secret scans; verify full API flow under runtime login; agree load/recovery
+targets and owners; final security/access/privacy reviews and physical operator pilot.
+Do not mark phase 7 complete while these gates remain open. Hardware remains phase 8.
+
 **Latest owner change:** retain databases and committed test records until explicitly
 deleted by the owner/admin. The test runner now retains per-run identity realms and
 per-case schemas; it no longer truncates earlier cases or removes test databases.
@@ -14,7 +94,10 @@ Previous phase 3–4 checkpoint: `f52b6fd96c89bf340eb4c53a2aa28617a4bc1e2f` on `
 Current phase 5–6 checkpoint: see `git log -1` and the recorded verification below.
 Repository: https://github.com/Pankil-Mevada/Parking_System
 
-**Resume with phase 7: production operations and launch verification.**
+**Continue phase 7: production operations and launch verification.**
+The latest UI refinement separates driver/staff/admin sidebar screens and hides
+the public demo after sign-in. See `docs/ROLE_UI_GUIDE.md`; this changes navigation,
+not backend permissions or parking invariants.
 Read `AGENTS.md`, this note, and `docs/PHASE_5_6.md` before making changes.
 Check `git status --short` first and preserve any newer user changes.
 
@@ -31,7 +114,7 @@ to the implemented development scope, not commercial launch readiness.
 | 4. Transactional parking and verification | Implemented and locally tested | Staff check-in/out, idempotency, locks, audit/outbox writes, authorization and concurrency/rollback tests |
 | 5. Real driver/staff/admin pages | Implemented; local verification recorded below | Floor summaries, scoped space grid/search, driver current session/history, vehicle dialog, confirmed staff parking controls, admin configuration/staff/users/audit; Chromium journey and basic mobile/keyboard checks |
 | 6. Durable realtime | Implemented; local verification recorded below | PostgreSQL delivery ledger, serialized retrying relay across API instances, authenticated finite SSE replay, snapshot cursor, version deduplication, reconnect/backoff/stale states and polling fallback |
-| 7. Production operations and pilot | Not completed | Some local health/configuration foundations exist; CI, production security/deployment, metrics, restore/load evidence, runbooks and pilot acceptance remain |
+| 7. Production operations and pilot | Partially implemented; launch blocked | Local metrics/logs, encrypted PostgreSQL restore, runtime login checks, provisional load results, review bundle and manual CI source; dependency triage, full identity recovery, production/staging setup, CI activation and operator acceptance remain; see docs/PHASE_7.md |
 | 8. Hardware integration | Planned by owner; not implemented | ANPR cameras, RFID readers/tags, occupancy sensors, and barrier gates. Device selection/protocols, failure handling, manual overrides, authorization and integration tests remain |
 
 ## What works now

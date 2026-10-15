@@ -1,5 +1,28 @@
 # VehicleParkingSystem
 
+**Latest local workflow:** email/password login, no authenticator/OTP requirement.
+Staff can create driver accounts, send setup links to local Mailpit, register/manage
+driver vehicles and confirm parking. Staff can register first and request access;
+an administrator assigns their location role afterward. See the current
+[manual guide](docs/ROLE_UI_GUIDE.md). Existing accounts/passwords/history are preserved.
+
+**Driver/staff separation:** admin navigation now separates **Drivers** from
+**Staff accounts**. Employees may register and request staff access, then an admin
+assigns their location role. Pre-approving an unused employee email remains optional.
+Driver accounts with vehicle/parking history cannot be
+assigned staff roles. See [employee onboarding](docs/ROLE_UI_GUIDE.md).
+Database migration 005 is required; existing assigned staff/admin accounts are preserved.
+
+**Phase 7 is in progress:** [operations commands and explicit launch blockers](docs/PHASE_7.md),
+[incident/recovery/pilot runbook](docs/OPERATIONS_RUNBOOK.md), and
+`operations/launch-gates.json`. India is confirmed; state and incident/alert owners
+are pending. Local metrics, encrypted PostgreSQL restore drills, load measurement,
+runtime-role verification and review bundles are implemented. The container
+dependency scan reports high/critical matches requiring triage. No launch is approved.
+
+For the current screens and manual role-based testing, see
+[Driver, Staff and Administrator UI guide](docs/ROLE_UI_GUIDE.md).
+
 Current data/email policy: [database viewer, retained tests and real SMTP setup](docs/DATABASE_AND_EMAIL.md).
 Use `py scripts/view_database.py --start` to inspect records at http://127.0.0.1:8090.
 Tests now retain case schemas and identity realms; the earlier disposable-cleanup
@@ -13,7 +36,7 @@ work and verified tests.
 Authentication/MFA, scoped roles and transactional parking remain documented in
 [phases 3–4](docs/PHASE_3_4.md).
 The phase 1–2 setup and verification history below is retained for context; the
-database now needs migrations through 003 and the identity services. Driver,
+database now needs migrations through 005 and the identity services. Driver,
 staff/admin dashboards and PostgreSQL-backed finite SSE batches are implemented.
 Phase 7 launch verification and phase 8 hardware integration remain.
 

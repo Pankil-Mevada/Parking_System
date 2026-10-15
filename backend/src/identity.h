@@ -3,7 +3,8 @@
 #include <drogon/drogon.h>
 namespace parking {
 struct Identity { std::string user, subject, session; bool mfa; };
-struct AuthConfig { std::string host, realm, issuer, secret, origin; };
+struct AuthConfig { std::string host, realm, issuer, secret, origin, driverSecret; };
+bool staffMfaRequired();
 Identity authenticate(Database &db, const drogon::HttpRequestPtr &request, const AuthConfig &config);
 void authorizeLocation(Database &db, const Identity &actor, const std::string &location, bool admin = false);
 }

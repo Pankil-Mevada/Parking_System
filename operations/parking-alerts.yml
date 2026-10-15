@@ -1,0 +1,18 @@
+groups:
+  - name: parking-provisional
+    rules:
+      - alert: ParkingApiUnavailable
+        expr: up{job="parking-api"} == 0
+        for: 1m
+      - alert: ParkingOutboxLag
+        expr: max(parking_outbox_lag_seconds) > 5
+        for: 1m
+      - alert: ParkingDatabaseConnections
+        expr: max(parking_db_connections / parking_db_max_connections) > 0.8
+        for: 2m
+      - alert: ParkingErrors
+        expr: sum(rate(parking_http_errors_total[5m])) > 0.1
+        for: 2m
+      - alert: ParkingStaleClients
+        expr: max(parking_stream_clients_stale) > 0
+        for: 2m

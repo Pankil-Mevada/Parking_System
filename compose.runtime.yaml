@@ -1,0 +1,8 @@
+services:
+  api:
+    environment:
+      API_DATABASE_URL_FILE: /run/secrets/runtime-database-url
+    secrets: [runtime-database-url]
+secrets:
+  runtime-database-url:
+    file: ./.tools/secrets/runtime-database-url

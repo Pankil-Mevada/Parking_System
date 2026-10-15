@@ -12,9 +12,10 @@ struct ApiError : std::runtime_error {
     ApiError(int code, const std::string &message) : std::runtime_error(message), status(code) {}
 };
 struct SqlError : std::runtime_error {
-    std::string state;
+    std::string state, constraint;
     explicit SqlError(PGresult *r) : std::runtime_error("database_error"),
-        state(PQresultErrorField(r, PG_DIAG_SQLSTATE) ? PQresultErrorField(r, PG_DIAG_SQLSTATE) : "") {}
+        state(PQresultErrorField(r, PG_DIAG_SQLSTATE) ? PQresultErrorField(r, PG_DIAG_SQLSTATE) : ""),
+        constraint(PQresultErrorField(r, PG_DIAG_CONSTRAINT_NAME) ? PQresultErrorField(r, PG_DIAG_CONSTRAINT_NAME) : "") {}
 };
 class Rows {
     std::shared_ptr<PGresult> result;

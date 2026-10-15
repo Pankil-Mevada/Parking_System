@@ -1,0 +1,21 @@
+{
+  "jurisdiction": {"country": "India", "state": null},
+  "loadTargetConcurrentUsers": 500,
+  "gates": {
+    "stagingAcceptance": false,
+    "securityReviewOfFinalRelease": false,
+    "dependencyScanAccepted": false,
+    "agreedLoadAndRecoveryResults": false,
+    "fullApplicationAndIdentityRestore": false,
+    "productionTlsAndSecretManager": false,
+    "privacyRetentionAndDeletionPolicy": false,
+    "staffAccessReview": false,
+    "physicalOccupancyPilot": false,
+    "operatorSignOff": false
+  },
+  "alertOwner": null,
+  "incidentOwner": null,
+  "availabilityTarget": null,
+  "recoveryTimeTargetSeconds": null,
+  "recoveryPointTargetSeconds": null
+}

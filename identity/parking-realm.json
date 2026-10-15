@@ -10,7 +10,7 @@
   "refreshTokenMaxReuse": 0,
   "passwordPolicy": "length(12) and notUsername(undefined) and notEmail(undefined)",
   "smtpServer": {"host": "mail", "port": "1025", "from": "parking@example.test", "auth": "false", "ssl": "false", "starttls": "false"},
-  "browserFlow": "parking-mfa",
+  "browserFlow": "parking-password",
   "resetCredentialsFlow": "parking-reset",
   "authenticatorConfig": [
     {"alias": "password-reference", "config": {"default.reference.value": "pwd", "default.reference.maxAge": "43200"}},
@@ -23,6 +23,12 @@
       {"authenticator": "reset-credentials-choose-user", "requirement": "REQUIRED", "priority": 10, "authenticatorFlow": false},
       {"authenticator": "reset-credential-email", "requirement": "REQUIRED", "priority": 20, "authenticatorFlow": false},
       {"authenticator": "reset-password", "requirement": "REQUIRED", "priority": 30, "authenticatorFlow": false}
+    ]
+  }, {
+    "alias": "parking-password", "description": "Local email and password login; no OTP challenge",
+    "providerId": "basic-flow", "topLevel": true, "builtIn": false,
+    "authenticationExecutions": [
+      {"authenticator": "auth-username-password-form", "requirement": "REQUIRED", "priority": 10, "authenticatorFlow": false}
     ]
   }, {
     "alias": "parking-mfa", "description": "Password plus required OTP; no cookie-only bypass",
@@ -46,6 +52,7 @@
         {"name": "actual-authentication-methods", "protocol": "openid-connect", "protocolMapper": "oidc-amr-mapper", "config": {"access.token.claim": "true", "id.token.claim": "true"}}
       ]
     },
-    {"clientId": "parking-api", "publicClient": false, "secret": "${OIDC_CLIENT_SECRET}", "standardFlowEnabled": false, "directAccessGrantsEnabled": false, "serviceAccountsEnabled": false}
+    {"clientId": "parking-api", "publicClient": false, "secret": "${OIDC_CLIENT_SECRET}", "standardFlowEnabled": false, "directAccessGrantsEnabled": false, "serviceAccountsEnabled": false},
+    {"clientId": "parking-driver-provisioner", "publicClient": false, "secret": "${OIDC_DRIVER_ADMIN_SECRET}", "standardFlowEnabled": false, "directAccessGrantsEnabled": false, "serviceAccountsEnabled": true}
   ]
 }

@@ -1,7 +1,9 @@
 #include "identity.h"
+#include "operations.h"
 #include <ctime>
 
 namespace parking {
+bool staffMfaRequired() {return setting("APP_ENV")=="production" || setting("REQUIRE_STAFF_MFA","true")!="false";}
 Identity authenticate(Database &db, const drogon::HttpRequestPtr &request, const AuthConfig &config) {
     auto header = request->getHeader("authorization");
     if (header.compare(0, 7, "Bearer ") != 0 || header.size() > 12000) throw ApiError(401, "authentication_required");
@@ -31,16 +33,26 @@ Identity authenticate(Database &db, const drogon::HttpRequestPtr &request, const
     if (!claims["email_verified"].asBool()) throw ApiError(403, "verified_account_required");
     std::string subject = required(claims, "sub"), session = required(claims, "sid");
     if (db.query("SELECT 1 FROM revoked_auth_sessions WHERE provider_session_id=$1 AND expires_at>now()", {session}).size()) throw ApiError(401, "revoked_session");
+    // Serialize first application login with administrator staff-email enrollment.
+    auto email=required(claims,"email",200);
+    db.begin();
+    db.query("SELECT pg_advisory_xact_lock(hashtextextended(lower(btrim($1)),518))",{email});
     auto user = db.query("INSERT INTO users(identity_provider_reference,display_name,email) VALUES($1,$2,$3) "
-                         "ON CONFLICT(identity_provider_reference) DO UPDATE SET display_name=excluded.display_name,email=excluded.email "
-                         "RETURNING id::text,status", {config.issuer + "|" + subject, claims.get("name", "").asString(), claims.get("email", "").asString()});
+                         "ON CONFLICT(identity_provider_reference) DO NOTHING RETURNING id::text,status",
+                         {config.issuer + "|" + subject, claims.get("name", "").asString(),email});
+    bool firstLogin=user.size()>0;
+    if(!firstLogin)user=db.query("UPDATE users SET display_name=$2,email=$3 WHERE identity_provider_reference=$1 RETURNING id::text,status",
+                               {config.issuer + "|" + subject,claims.get("name", "").asString(),email});
     if (user.get(0,"status") != "enabled") throw ApiError(403, "account_disabled");
+    // Existing drivers cannot become employees by changing their verified email.
+    if(firstLogin)db.query("UPDATE staff_accounts SET user_id=$1::uuid WHERE email=lower(btrim($2)) AND user_id IS NULL",{user.get(0,"id"),email});
+    db.commit();
     bool mfa = false;
     if (claims["amr"].isArray()) for (const auto &method : claims["amr"]) if (method == "otp") mfa = true;
     return {user.get(0,"id"), subject, session, mfa};
 }
 void authorizeLocation(Database &db, const Identity &actor, const std::string &location, bool admin) {
-    if (!actor.mfa) throw ApiError(403, "staff_mfa_required");
+    if (staffMfaRequired() && !actor.mfa) throw ApiError(403, "staff_mfa_required");
     auto result = db.query("SELECT role FROM staff_assignments WHERE user_id=$1::uuid AND location_id=$2::uuid FOR SHARE", {actor.user, location});
     if (!result.size() || (admin && result.get(0,"role") != "operator_admin")) throw ApiError(403, "location_access_denied");
 }

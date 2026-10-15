@@ -60,7 +60,7 @@ def create_user(name, verified=True):
     token = admin_token()
     request(IDENTITY + '/admin/realms/' + REALM + '/users', value, token)
     users = request(IDENTITY + '/admin/realms/' + REALM + '/users?email=' + urllib.parse.quote(name + '@example.test') + '&exact=true', token=token)
-    return {'id': users[0]['id'], 'username': users[0]['username'], 'password': password, 'secret': secret}
+    return {'id': users[0]['id'], 'username': users[0]['username'], 'email':users[0]['email'], 'password': password, 'secret': secret}
 
 
 def login(user, invalid_otp=False):

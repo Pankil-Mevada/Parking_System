@@ -1,4 +1,6 @@
 #include "parking.h"
+#include "driver_accounts.h"
+#include <regex>
 #include <trantor/utils/ConcurrentTaskQueue.h>
 
 namespace parking {
@@ -18,9 +20,14 @@ void registerProtectedApi(const std::string &databaseUrl, const AuthConfig &conf
                 if(!origin.empty() && origin!=config.origin) throw ApiError(403,"origin_denied");
                 Database db(databaseUrl);
                 auto actor=authenticate(db,request,config);
-                result=execute(db,actor,request,requestId);
+                if(request->method()==drogon::Post && std::regex_match(request->path(),std::regex("/api/staff/locations/[^/]+/drivers")))result=createDriver(db,actor,request,config,requestId);
+                else result=execute(db,actor,request,requestId);
             } catch(const ApiError &e) { result.status=e.status; result.body["error"]=e.what(); }
-              catch(const SqlError &e) { result.status=e.state=="23505" ? 409 : (e.state=="23514" || e.state=="22P02" ? 400 : 503); result.body["error"]=result.status==409?"parking_or_registration_conflict":(result.status==400?"invalid_request":"transaction_failed"); }
+              catch(const SqlError &e) {
+                  result.status=e.state=="23505" ? 409 : (e.state=="23514" || e.state=="22P02" ? 400 : 503);
+                  result.body["error"]=result.status==409?"parking_or_registration_conflict":(result.status==400?"invalid_request":"transaction_failed");
+                  if(e.state=="23505" && e.constraint=="unique_enabled_registration")result.body["error"]="vehicle_registration_already_in_use";
+              }
               catch(const std::exception &) { result.status=500; result.body["error"]="internal_error"; }
             auto response=drogon::HttpResponse::newHttpJsonResponse(result.body);
             if(request->path().size()>=7 && request->path().substr(request->path().size()-7)=="/events" && result.status==200) {
@@ -41,6 +48,9 @@ void registerProtectedApi(const std::string &databaseUrl, const AuthConfig &conf
     for(auto path:{"/api/me","/api/me/vehicle","/api/me/parking-session","/api/me/parking-history"})
         drogon::app().registerHandler(path,decltype(handler)(handler),{drogon::Get});
     drogon::app().registerHandler("/api/me/vehicle",decltype(handler)(handler),{drogon::Put});
+    drogon::app().registerHandler("/api/me/staff-application",decltype(handler)(handler),{drogon::Post});
+    drogon::app().registerHandlerViaRegex("/api/staff/locations/[^/]+/drivers/[^/]+/vehicle",decltype(handler)(handler),{drogon::Put});
+    drogon::app().registerHandlerViaRegex("/api/staff/locations/[^/]+/drivers",decltype(handler)(handler),{drogon::Get,drogon::Post});
     drogon::app().registerHandler("/api/auth/logout",decltype(handler)(handler),{drogon::Post});
     drogon::app().registerHandler("/api/staff/check-ins",decltype(handler)(handler),{drogon::Post});
     drogon::app().registerHandlerViaRegex("/api/staff/sessions/[^/]+/check-out",decltype(handler)(handler),{drogon::Post});
@@ -53,6 +63,7 @@ void registerProtectedApi(const std::string &databaseUrl, const AuthConfig &conf
     drogon::app().registerHandlerViaRegex("/api/staff/locations/[^/]+/(dashboard|events|vehicles)",decltype(handler)(handler),{drogon::Get});
     drogon::app().registerHandlerViaRegex("/api/admin/locations/[^/]+/(configuration|users)",decltype(handler)(handler),{drogon::Get,drogon::Put});
     drogon::app().registerHandlerViaRegex("/api/admin/locations/[^/]+/(audit|staff-list)",decltype(handler)(handler),{drogon::Get});
+    drogon::app().registerHandlerViaRegex("/api/admin/locations/[^/]+/staff-accounts",decltype(handler)(handler),{drogon::Get,drogon::Post});
     drogon::app().registerHandlerViaRegex("/api/admin/locations/[^/]+/(zones|spaces)",decltype(handler)(handler),{drogon::Post,drogon::Put});
 }
 }

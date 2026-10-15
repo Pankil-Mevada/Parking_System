@@ -13,6 +13,11 @@ def main():
     sql = f"""\set ON_ERROR_STOP on
 BEGIN;
 SELECT id FROM users WHERE id='{args.user_id}' AND status='enabled' FOR UPDATE;
+INSERT INTO staff_accounts(email,user_id,location_id,created_by)
+SELECT lower(btrim(email)),id,'{args.location_id}',id FROM users
+WHERE id='{args.user_id}' AND status='enabled'
+AND NOT EXISTS(SELECT 1 FROM vehicles WHERE user_id='{args.user_id}' AND disabled_at IS NULL)
+ON CONFLICT(email) DO NOTHING;
 INSERT INTO staff_assignments(user_id,location_id,role)
 VALUES('{args.user_id}','{args.location_id}','operator_admin')
 ON CONFLICT(user_id,location_id) DO UPDATE SET role='operator_admin';

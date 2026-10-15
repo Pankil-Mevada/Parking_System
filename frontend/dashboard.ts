@@ -23,16 +23,31 @@ function table(rows: Row[], columns: [string, string][]): HTMLElement {
 function date(value: string | null): string {return value ? new Date(value).toLocaleString() : '—';}
 export function startDashboard(api: Api, me: Record<string, unknown>, getToken: () => Promise<string>): () => void {
   document.querySelector('#account-section')!.after(section);
-  let stopped = false, epoch = 0, cursor = '0', offset = 0, historyOffset = 0, timer: ReturnType<typeof setTimeout>;
+  let stopped = false, setupPending = false, epoch = 0, cursor = '0', offset = 0, historyOffset = 0, timer: ReturnType<typeof setTimeout>;
   let failures = 0, lastSuccess = 0, scope = 'locations', snapshot: Snapshot | undefined, subscription = 0;
   let streamController: AbortController | undefined;
   const assignments = me.assignments as Assignment[];
   const keys = new Map<string, string>();
   const versions = new Map<string, bigint>();
-  const title = node('h2', 'Parking dashboard');
+  const title = node('h1', 'My dashboard');
+  const description = node('p', '', 'role-description');
+  const badge = node('span', 'Driver workspace', 'role-badge');
+  const navigation = document.querySelector<HTMLElement>('.sidebar nav')!;
+  const publicNavigation = [...navigation.childNodes];
+  const publicSections = ['overview','location-section','preview-section'].map(id=>document.getElementById(id)!);
+  const account = document.getElementById('account-section')!;
+  const accountMessage=document.getElementById('account-message')!;
+  const signout=document.getElementById('account-logout')!;
+  const accountStrip=node('div','','workspace-account');accountStrip.append(accountMessage,signout);
+  let activeView='dashboard',navigationKey='';
+  const views: Record<string,[string,string,string][]> = {
+    driver:[['dashboard','My dashboard','Your current parking session and the next step.'],['availability','Find parking','Choose a location and compare available spaces by floor.'],['vehicle','My vehicle','Register or replace the one vehicle linked to your account.'],['history','My parking history','Review your own arrivals and departures.']],
+    attendant:[['occupancy','Space occupancy','View parking spaces and location availability.'],['drivers','Driver accounts & vehicles','Create driver accounts and register or manage their vehicles.'],['checkin','Check in a vehicle','Find a registered vehicle and confirm its physical arrival.'],['checkout','Check out a vehicle','Select an occupied space and confirm departure.']],
+    operator_admin:[['overview','Location overview','Monitor capacity and occupancy at this location.'],['spaces','Floors & spaces','Configure floors, numbered spaces, compatibility and maintenance.'],['locations','Location settings','Edit this location or create another location.'],['drivers','Drivers','Find driver accounts and manage their vehicles. Drivers cannot be assigned staff roles.'],['people','Staff accounts','Approve separate employee accounts and assign their location roles.'],['audit','Audit records','Search recorded actions at this location.'],['operations','Check-in / check-out','Perform authorized staff parking operations.']],
+  };
   const controls = node('div', '', 'workspace-controls');
   const location = node('select'); location.setAttribute('aria-label', 'Parking location');
-  const role = node('select'); role.setAttribute('aria-label', 'Dashboard role');
+  const role = node('select'); role.setAttribute('aria-label', 'Switch workspace');
   const floor = node('select'); floor.setAttribute('aria-label', 'Floor filter');
   const search = node('input'); search.placeholder = 'Search this page: space, plate, owner'; search.setAttribute('aria-label', 'Search current space page');
   const status = node('p', 'Loading your dashboard…', 'workspace-status'); status.setAttribute('role', 'status');
@@ -42,14 +57,61 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
   const pages = node('div', '', 'workspace-controls');
   const previous = button('Previous spaces', () => {offset = Math.max(0, offset - 100); void refresh();});
   const next = button('Next spaces', () => {offset += 100; void refresh();}); pages.append(previous, next);
-  controls.append(location, role, floor, search, button('Refresh now', () => {void refresh();}));
-  section.replaceChildren(title, controls, status, floors, session, staff, spaces, pages, history, admin); section.hidden = false;
+  const filters=node('div','','workspace-controls space-filters');filters.append(floor,search);
+  function labeled(text:string,field:HTMLElement):HTMLLabelElement {const label=node('label',text);label.append(field);return label;}
+  controls.append(labeled('Parking location',location),labeled('Switch workspace',role),button('Refresh now', () => {void loadLocations().catch(fail);}));
+  section.replaceChildren(badge,title,description,accountStrip,controls,status,filters,floors,session,staff,spaces,pages,history,admin,account); section.hidden = false;
+  for(const panel of publicSections)panel.hidden=true;
+  document.body.classList.add('authenticated-workspace');
+  const topbarTitle=document.querySelector<HTMLElement>('.topbar strong')!;
+  const publicLabel=document.querySelector<HTMLElement>('.public-label')!;
+  function applyView():void {
+    const workspace=role.value || 'driver';
+    const available=views[workspace] ?? views.driver;
+    if(!available.some(([key])=>key===activeView))activeView=available[0][0];
+    const selected=available.find(([key])=>key===activeView)!;
+    const roleName=workspace==='operator_admin'?'Administrator':workspace==='attendant'?'Staff':'Driver';
+    section.dataset.role=workspace;badge.textContent=`${roleName} workspace`;title.textContent=selected[1];description.textContent=selected[2];
+    topbarTitle.textContent=selected[1];publicLabel.textContent=`${roleName} workspace`;
+    account.hidden=activeView!=='vehicle';session.hidden=activeView!=='dashboard';history.hidden=activeView!=='history';
+    floors.hidden=!['availability','occupancy','overview','spaces'].includes(activeView);
+    const showSpaces=['occupancy','checkout','spaces','operations'].includes(activeView) && workspace!=='driver';
+    spaces.hidden=pages.hidden=!showSpaces;filters.hidden=!showSpaces;
+    staff.hidden=!['checkin','operations','drivers'].includes(activeView) || workspace==='driver';
+    if(activeView==='drivers' && workspace!=='attendant')staff.hidden=true;
+    for(const child of staff.children)if(child instanceof HTMLElement)child.hidden=child.dataset.view!==activeView && !(activeView==='operations' && child.dataset.view==='checkin');
+    admin.hidden=workspace!=='operator_admin' || !['locations','spaces','people','drivers','audit'].includes(activeView);
+    for(const child of admin.children) {
+      if(child instanceof HTMLElement)child.hidden=child.dataset.view!==activeView;
+    }
+    if(navigationKey===`${workspace}/${activeView}`)return;
+    navigationKey=`${workspace}/${activeView}`;navigation.replaceChildren();
+    for(const [key,label] of available) {
+      const link=node('a',label,'nav-item'+(key===activeView?' active':''));link.href=`#workspace/${workspace}/${key}`;
+      if(key===activeView)link.setAttribute('aria-current','page');
+      link.addEventListener('click',event=>{event.preventDefault();navigate(key);});navigation.append(link);
+    }
+    const security=node('a','Account security','nav-item');security.href='http://127.0.0.1:8180/realms/parking/account/#/security/signingin';security.target='_blank';security.rel='noopener';navigation.append(security);
+  }
+  function navigate(view:string,replace=false):void {
+    activeView=view;applyView();renderSpaces();
+    window.history[replace?'replaceState':'pushState'](null,'',`#workspace/${role.value}/${activeView}`);
+    title.tabIndex=-1;title.focus({preventScroll:true});section.scrollIntoView({block:'start'});
+  }
+  function restoreRoute():void {
+    const parts=window.location.hash.split('/');
+    if(parts[0]==='#workspace' && parts[1]!==role.value && [...role.options].some(option=>option.value===parts[1])) {
+      role.value=parts[1];void changed().catch(fail);return;
+    }
+    if(parts[0]==='#workspace' && parts[1]===role.value) {activeView=parts[2] ?? '';applyView();renderSpaces();}
+  }
+  window.addEventListener('popstate',restoreRoute);
   function fail(error: unknown): void {status.textContent = `Could not complete request: ${String(error)}. Displayed data may be stale.`;}
   async function mutate(path: string, method: string, body: unknown, idempotent = false): Promise<Record<string, unknown>> {
     const operation = path + JSON.stringify(body);
     let key = keys.get(operation); if (!key) { key = crypto.randomUUID(); keys.set(operation, key); }
     const result = await api(path, method, body, idempotent ? key : undefined);
-    keys.delete(operation); return result;
+    if(result.setupEmailSent!==false)keys.delete(operation); return result;
   }
   function form(title: string, fields: [string, string, string, string?][], submit: (body: Record<string, string>) => Promise<void>): HTMLFormElement {
     const view = node('form', '', 'workspace-form'); view.append(node('h3', title));
@@ -87,7 +149,7 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
   function renderSpaces(): void {
     spaces.replaceChildren();
     if (!snapshot?.spaces) return;
-    const matching = snapshot.spaces.filter(item => (floor.value === 'all' || (item.zone_id ?? 'unassigned') === floor.value)
+    const matching = snapshot.spaces.filter(item => (activeView!=='checkout' || Boolean(item.session_id)) && (floor.value === 'all' || (item.zone_id ?? 'unassigned') === floor.value)
       && [item.label, item.registration_snapshot, item.display_name, item.email].some(value => (value ?? '').toLowerCase().includes(search.value.toLowerCase())));
     for (const item of matching) {
       const occupied = Boolean(item.session_id), maintenance = item.operational_status !== 'enabled';
@@ -96,17 +158,17 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
       card.append(node('h3', `${floorName} · ${item.label}`), node('strong', occupied ? '● Occupied' : maintenance ? '⊘ Out of service' : '○ Empty'), node('p', `Compatible: ${item.supported_vehicle_type}`));
       if (occupied) {
         card.append(node('p', `${item.registration_snapshot} · ${item.vehicle_type ?? ''} · ${item.color ?? ''}`), node('p', `${item.display_name ?? ''} · ${item.email ?? ''}`), node('p', `Arrival: ${date(item.checked_in_at)}`));
-        card.append(button('Check out', () => {void confirmAction(`Confirm departure of ${item.registration_snapshot} from ${item.label}?`, async () => {
+        if(role.value==='attendant' || activeView==='operations')card.append(button('Check out', () => {void confirmAction(`Confirm departure of ${item.registration_snapshot} from ${item.label}?`, async () => {
           await mutate(`/api/staff/sessions/${item.session_id}/check-out`, 'POST', {}, true); await refresh();
         });}));
       }
-      if (role.value === 'operator_admin' && !occupied) card.append(button(maintenance ? 'Restore space' : 'Mark out of service', () => {
+      if (role.value === 'operator_admin' && activeView==='spaces' && !occupied) card.append(button(maintenance ? 'Restore space' : 'Mark out of service', () => {
         const dialog = node('dialog'); dialog.setAttribute('aria-label', 'Space maintenance reason');
         dialog.append(form('Space maintenance', [['reason', 'Reason', 'Explain the maintenance change']], async body => {
           await mutate(`/api/admin/spaces/${item.id}/status`, 'PUT', {status: maintenance ? 'enabled' : 'out_of_service', reason: body.reason}); dialog.close(); await refresh();
         }), button('Cancel', () => dialog.close())); dialog.addEventListener('close', () => dialog.remove()); section.append(dialog); dialog.showModal();
       }));
-      if (role.value === 'operator_admin' && !occupied) card.append(button('Edit space', () => {
+      if (role.value === 'operator_admin' && activeView==='spaces' && !occupied) card.append(button('Edit space', () => {
         const dialog = node('dialog'); dialog.setAttribute('aria-label','Edit numbered space');
         dialog.append(form('Edit space', [['label','Space label','F1-01',item.label!],['vehicleType','Compatible type: car, motorcycle, van','car',item.supported_vehicle_type!],['reason','Reason','Explain the change']],async body=>{
           const zone = dialog.querySelector<HTMLSelectElement>('select')!;
@@ -134,10 +196,11 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
     const prev = button('Previous history', () => {historyOffset = Math.max(0, historyOffset - 50); void driver().catch(fail);}); prev.disabled = historyOffset === 0;
     const more = button('Next history', () => {historyOffset += 50; void driver().catch(fail);}); more.disabled = records.length < 50;
     history.replaceChildren(node('h3', 'Your parking history'), table(records, [['location','Location'],['floor','Floor'],['space','Space'],['registration_snapshot','Vehicle'],['checked_in_at','Arrival'],['checked_out_at','Departure']]), prev, more);
+    applyView();
   }
   async function refresh(): Promise<void> {
     const generation = ++epoch;
-    if (!location.value || stopped) return;
+    if (!location.value || stopped || setupPending) return;
     status.textContent = 'Loading confirmed parking records…';
     try {
       const data = await api(`/api/${scope}/${location.value}/dashboard?offset=${offset}`) as unknown as Snapshot;
@@ -155,6 +218,7 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
       if ([...floor.options].some(item => item.value === selected)) floor.value = selected;
       spaces.hidden = pages.hidden = staff.hidden = scope === 'locations';
       renderSpaces(); await driver();
+      applyView();
       status.textContent = `Confirmed snapshot · Updated ${date(data.timestamp)}. Connecting for changes…`;
       window.dispatchEvent(new Event('parking-updated'));
     } catch (error) {
@@ -215,8 +279,41 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
         });},'primary-button'); check.disabled = !options.options.length;
         result.append(options, check); if (!options.options.length) result.append(node('p', 'No compatible empty space on the current page. Change the space page and search again.'));
       }
-      staff.querySelector('.lookup-results')?.remove(); result.className = 'lookup-results'; staff.append(result);
-    }); lookup.querySelector('button')!.textContent = 'Find vehicle'; staff.append(lookup);
+      staff.querySelector('.lookup-results')?.remove(); result.className = 'lookup-results';result.dataset.view='checkin'; staff.append(result);
+    }); lookup.querySelector('button')!.textContent = 'Find vehicle';lookup.dataset.view='checkin'; staff.append(lookup);
+    const created=node('div','','staff-guide');created.dataset.view='drivers';
+    created.append(node('h3','Driver onboarding'),node('p','1. Create the driver account with their email and name.'),node('p','2. The driver opens the Mailpit setup link to verify email and choose a password.'),node('p','3. Find the driver below and save their vehicle. Then confirm arrival on Check in a vehicle.'));
+    const create=form('Create a driver account',[['email','Driver email','driver@example.com'],['firstName','First name','First name'],['lastName','Last name','Last name']],async body=>{
+      const result=await mutate(`/api/staff/locations/${selectedLocation}/drivers`,'POST',body,true);
+      created.replaceChildren(node('p',result.setupEmailSent?'Driver account created. Open the setup email in local Mailpit to verify email and choose a password.':'Driver account saved, but setup email was not sent. Retry the same form to send the setup link.'));
+    });create.dataset.view='drivers';create.querySelector('button')!.textContent='Create driver and send setup email';
+    const foundDriver=node('div','','staff-driver-results');foundDriver.dataset.view='drivers';
+    const find=form('Find a driver to register or manage a vehicle',[['email','Exact driver email','driver@example.com']],async body=>{
+      const data=await api(`/api/staff/locations/${selectedLocation}/drivers?email=${encodeURIComponent(body.email)}`);
+      foundDriver.replaceChildren();
+      for(const owner of data.users as Row[]) {
+        let details:Row={};
+        if(owner.vehicle_id) {
+          const match=await api(`/api/staff/locations/${selectedLocation}/vehicles?jurisdiction=${encodeURIComponent(owner.registration_jurisdiction!)}&registration=${encodeURIComponent(owner.normalized_registration!)}`);
+          details=(match.vehicles as Row[])[0] ?? {};
+        }
+        const summary=node('p',`${owner.display_name} · ${owner.email} · Current vehicle: ${owner.normalized_registration ?? 'none'}`);foundDriver.append(summary);
+        const registration=form('Register vehicle for this driver',[
+          ['registrationJurisdiction','Registration jurisdiction','e.g. IN-GJ',owner.registration_jurisdiction ?? ''],['registration','Vehicle registration','e.g. GJ08AB1234',owner.normalized_registration ?? ''],
+          ['vehicleType','Vehicle type','car',details.vehicle_type ?? 'car'],['make','Make (optional)','e.g. Maruti',details.make ?? ''],['model','Model (optional)','e.g. Swift',details.model ?? ''],['color','Color (optional)','e.g. White',details.color ?? '']
+        ],async values=>{
+          const saved=await mutate(`/api/staff/locations/${selectedLocation}/drivers/${owner.id}/vehicle`,'PUT',values);
+          const vehicle=saved.vehicle as Row;owner.vehicle_id=vehicle.id;owner.normalized_registration=vehicle.normalized_registration;
+          summary.textContent=`${owner.display_name} · ${owner.email} · Current vehicle: ${vehicle.normalized_registration}`;disable.disabled=false;await refresh();
+        });
+        for(const name of ['make','model','color'])registration.querySelector<HTMLInputElement>(`[name=${name}]`)!.required=false;
+        registration.querySelector('button')!.textContent='Save driver vehicle';foundDriver.append(registration);
+        const disable=button('Disable driver vehicle…',()=>{void confirmAction('Disable this driver vehicle? Active parking must end first.',async()=>{
+          await mutate(`/api/staff/locations/${selectedLocation}/drivers/${owner.id}/vehicle`,'PUT',{disabled:true});owner.vehicle_id=null;summary.textContent=`${owner.display_name} · ${owner.email} · Current vehicle: none`;disable.disabled=true;await refresh();
+        });});disable.disabled=!owner.vehicle_id;foundDriver.append(disable);
+      }
+      if(!(data.users as Row[]).length)foundDriver.append(node('p','No driver account found. Create it above. Employee accounts are excluded.'));
+    });find.dataset.view='drivers';find.querySelector('button')!.textContent='Find driver';staff.append(create,created,find,foundDriver);applyView();
   }
   async function buildAdmin(): Promise<void> {
     admin.replaceChildren(); if (role.value !== 'operator_admin') return;
@@ -248,23 +345,45 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
     for (const [name,label,options] of [['zoneId','Floor / zone',(data.zones as Row[]).map(row => [row.id!,row.label!])],['vehicleType','Compatible vehicle type',[['car','Car'],['motorcycle','Motorcycle'],['van','Van']]]] as [string,string,string[][]][]) {
       const field = node('label', label), select = node('select'); select.name = name; select.required = true;if(name==='zoneId')select.dataset.zonePicker='true'; for(const [value,text] of options) select.append(new Option(text,value)); field.append(select); spaceForm.insertBefore(field,spaceForm.querySelector('button'));
     } admin.append(spaceForm);
-    const staffResult = node('div');
+    const staffResult = node('div');staffResult.dataset.view='drivers';
     const userForm = form('Find a user / vehicle', [['email','Exact registered email','driver@example.com']], async body => {
       const found = await api(base+'/users?email='+encodeURIComponent(body.email));
       if (stopped || ticket !== subscription) return;
       staffResult.replaceChildren(table(found.users as Row[],[['display_name','Name'],['email','Email'],['id','User ID'],['status','Status'],['normalized_registration','Vehicle']]));
       for(const user of found.users as Row[]) {
-        const assign = form(`Assign ${user.display_name || user.email} to this location`, [['role','Role: attendant, operator_admin, or none','attendant'],['reason','Reason','Explain this assignment']], async body => {await mutate(base+'/staff','POST',{...body,userId:user.id}); await showStaff();});
         const manage = form(`Account status for ${user.email}`, [['status','Status: enabled or disabled', 'disabled'],['reason','Reason','Explain this account change']], async body => {await mutate(base+'/users','PUT',{...body,userId:user.id});});
-        staffResult.append(assign, manage, button('Disable this vehicle…', () => {void confirmAction('Disable this registered vehicle? Any active parking session must end first.', async () => {
+        staffResult.append(manage, button('Disable this vehicle…', () => {void confirmAction('Disable this registered vehicle? Any active parking session must end first.', async () => {
           await mutate(base+'/users','PUT',{userId:user.id,status:user.status,disableVehicle:true,reason:'Administrator confirmed vehicle disable from user management'});
         });}));
       }
     }); userForm.querySelector('button')!.textContent = 'Find user'; admin.append(userForm, staffResult);
-    const list = node('div'); admin.append(list);
-    async function showStaff(): Promise<void> {const data = await api(base+'/staff-list'); if(stopped || ticket!==subscription)return; list.replaceChildren(node('h3','Staff assignments'),table(data.staff as Row[],[['display_name','Name'],['email','Email'],['role','Role']]));}
+    const enroll=form('Approve a new staff account', [['email','New staff email (separate from driver accounts)','employee@example.com'],['reason','Reason','Employee onboarding']],async body=>{
+      await mutate(base+'/staff-accounts','POST',body);await showStaff();
+    });
+    enroll.querySelector('button')!.textContent='Approve employee email';
+    enroll.append(node('p','Approve the employee email first. The employee then registers with that email, verifies it, signs in and enrolls an authenticator. Approval alone grants no location access.'));
+    admin.append(enroll);
+    const list = node('div');list.dataset.view='people'; admin.append(list);let employeeOffset=0;
+    async function showStaff(): Promise<void> {
+      const data = await api(base+'/staff-accounts?offset='+employeeOffset); if(stopped || ticket!==subscription)return;
+      const rows=data.staffAccounts as Row[];
+      list.replaceChildren(node('h3','Employee accounts and location roles'),table(rows,[['display_name','Name'],['email','Staff email'],['role','Assigned role']]));
+      for(const employee of rows) {
+        if(!employee.user_id){list.append(node('p',`${employee.email}: awaiting registration, email verification and first parking-app sign-in.`));continue;}
+        const assign=form(`Location role for ${employee.email}`, [['reason','Reason','Explain this staff role change']],async body=>{
+          await mutate(base+'/staff','POST',{...body,userId:employee.user_id,role:choice.value});await showStaff();
+        });
+        const choice=node('select');choice.name='role';choice.required=true;
+        for(const [value,label] of [['attendant','Attendant — check-in / check-out'],['operator_admin','Administrator — manage location and staff'],['none','No location access']])choice.append(new Option(label,value));
+        choice.value=employee.role ?? 'none';assign.insertBefore(labeled('Employee role',choice),assign.querySelector('button'));
+        list.append(assign);
+      }
+      if(!rows.length)list.append(node('p','No employee accounts approved for this location. Driver accounts never appear in this list.'));
+      const previous=button('Previous employees',()=>{employeeOffset=Math.max(0,employeeOffset-100);void showStaff().catch(fail);});previous.disabled=employeeOffset===0;
+      const next=button('Next employees',()=>{employeeOffset+=100;void showStaff().catch(fail);});next.disabled=rows.length<100;list.append(previous,next);
+    }
     await showStaff();
-    const audit = node('div'); let auditOffset = 0;
+    const audit = node('div');audit.dataset.view='audit'; let auditOffset = 0;
     const auditForm = form('Search audit records', [['action','Exact action (e.g. check_in, audit_read)','check_in']], async body => {auditOffset = 0; await showAudit(body.action);});
     auditForm.querySelector<HTMLInputElement>('input')!.required = false;
     async function showAudit(action = auditForm.querySelector<HTMLInputElement>('input')!.value): Promise<void> {
@@ -274,14 +393,21 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
       audit.replaceChildren(table(rows,[['action','Action'],['occurred_at','Time (UTC)'],['actor_id','Actor'],['target_id','Target'],['request_id','Request'],['sanitized_changes','Changes']]),prev,next);
     }
     auditForm.querySelector('button')!.textContent='Search'; admin.append(auditForm,audit); await showAudit('');
+    for(const item of admin.querySelectorAll<HTMLFormElement>(':scope > form')) {
+      const heading=item.querySelector('h3')?.textContent ?? '';
+      item.dataset.view=heading.includes('Location settings') || heading.includes('another location')?'locations':heading.includes('floor') || heading.includes('space')?'spaces':heading.includes('audit')?'audit':heading==='Find a user / vehicle'?'drivers':'people';
+    }
+    applyView();
   }
   async function changed(): Promise<void> {
     const ticket = ++subscription; streamController?.abort(); clearTimeout(timer); offset = 0; cursor = '0';
     versions.clear();
     spaces.replaceChildren();session.replaceChildren();history.replaceChildren();
     scope = role.value === 'driver' ? 'locations' : 'staff/locations';
+    activeView=views[role.value][0][0];applyView();
     staff.replaceChildren(); admin.replaceChildren(); await refresh();
     if(stopped || ticket!==subscription)return;
+    restoreRoute();applyView();renderSpaces();
     await buildStaff();
     if(stopped || ticket!==subscription)return;
     await buildAdmin();
@@ -289,22 +415,46 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
     void connect(ticket);
   }
   function roles(): void {
-    role.replaceChildren(new Option('Driver dashboard','driver'));
+    role.replaceChildren();
+    if(me.accountType!=='staff')role.append(new Option('Driver','driver'));
     const assignment = assignments.find(item => item.locationId === location.value);
-    if (assignment && me.mfa) role.append(new Option(assignment.role === 'operator_admin' ? 'Administrator dashboard' : 'Staff dashboard',assignment.role));
+    if (assignment && (me.mfa || me.staffMfaRequired===false)) {role.append(new Option(assignment.role === 'operator_admin' ? 'Administrator' : 'Staff',assignment.role));role.value=assignment.role;}
+    if(!role.options.length)role.append(new Option('Staff setup','attendant'));
   }
   async function loadLocations(): Promise<void> {
     const data = await api('/api/locations'); if (stopped) return;
     const profile=await api('/api/me');if(stopped)return;
     assignments.splice(0,assignments.length,...profile.assignments as Assignment[]);
+    me.accountType=profile.accountType;
+    me.staffMfaRequired=profile.staffMfaRequired;
     const selected = location.value; location.replaceChildren();
     for (const item of data.locations as Row[]) location.append(new Option(item.name!,item.id!));
     if([...location.options].some(item=>item.value===selected)) location.value=selected;
+    else if(me.accountType==='staff' && assignments.length)location.value=assignments[0].locationId;
+    if(me.accountType==='staff' && ((me.staffMfaRequired!==false && !me.mfa) || !assignments.some(item=>item.locationId===location.value))) {
+      setupPending=true;
+      ++subscription;++epoch;streamController?.abort();clearTimeout(timer);
+      snapshot=undefined;spaces.replaceChildren();staff.replaceChildren();admin.replaceChildren();session.replaceChildren();history.replaceChildren();
+      roles();activeView='occupancy';applyView();
+      status.textContent=me.staffMfaRequired!==false && !me.mfa?'Staff account: enroll an authenticator in Account security, then sign out and sign in again.':'Staff account: ask your administrator to assign a location role. Driver registration is unavailable for employee accounts.';
+      return;
+    }
+    setupPending=false;
     roles(); if (!location.options.length) {status.textContent='No locations configured. Ask your operator administrator.';return;} await changed();
   }
-  location.addEventListener('change',()=>{roles();void changed().catch(fail);}); role.addEventListener('change',()=>{void changed().catch(fail);});
+  function switchWorkspace():void {
+    window.history.replaceState(null,'',`#workspace/${role.value}/${views[role.value][0][0]}`);
+    void changed().catch(fail);
+  }
+  location.addEventListener('change',()=>{roles();switchWorkspace();}); role.addEventListener('change',switchWorkspace);
   floor.addEventListener('change',renderSpaces); search.addEventListener('input',renderSpaces);
   void loadLocations().catch(fail);
   const fallback = setInterval(()=>{if(!stopped && (failures > 0 || Date.now()-lastSuccess>15000)) void refresh();},15000);
-  return () => {stopped=true;epoch++;streamController?.abort();clearTimeout(timer);clearInterval(fallback);section.replaceChildren();section.hidden=true;};
+  return () => {
+    stopped=true;epoch++;streamController?.abort();clearTimeout(timer);clearInterval(fallback);window.removeEventListener('popstate',restoreRoute);
+    document.body.classList.remove('authenticated-workspace');for(const panel of publicSections)panel.hidden=false;
+    navigation.replaceChildren(...publicNavigation);topbarTitle.textContent='Overview';publicLabel.textContent='Public availability';
+    document.getElementById('overview')!.after(account);account.hidden=false;account.prepend(accountMessage);account.append(signout);
+    section.replaceChildren();section.hidden=true;
+  };
 }

@@ -43,6 +43,24 @@ claim that the application is implemented or ready for production.
 - Prefer a modular application before introducing microservices.
 
 ## Roles and access
+- Owner update (2026-10-15): driver and employee accounts are separate. Public
+  registration creates a driver unless the administrator approved a separate
+  employee email before the first parking-app login. Driver search must never
+  offer staff role assignment; the API/database must reject assigning drivers.
+  Staff role selection is limited to separately enrolled employee accounts.
+  Owner refinement: an employee may register first and explicitly request staff
+  access before an administrator assigns a location role. Accounts with vehicle
+  or parking history must use a separate employee identity. Public registration
+  or a staff request alone grants no staff permissions.
+  Employee accounts cannot register a personal vehicle under their own login;
+  authorized staff may create driver accounts and register/manage those drivers'
+  vehicles at assigned locations. Preserve existing
+  assigned employee accounts and historical records during migration.
+- Owner-approved local development login now uses verified email and password
+  without Microsoft Authenticator or other OTP apps. `REQUIRE_STAFF_MFA=false`
+  selects this local mode. Do not remove login, location authorization, or email
+  verification. Production privileged MFA remains a launch gate; strict-mode tests
+  and enrolled credentials are retained for future re-enablement.
 - Driver: manage own vehicle, see availability and own session/history.
 - Attendant: check vehicles in/out and see owner/vehicle information only at
   assigned locations. Cannot grant roles or manage other locations.

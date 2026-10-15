@@ -11,7 +11,7 @@
   <div class="sidebar-footer"><span class="avatar" aria-hidden="true">VP</span><span>Vehicle Parking System<small>Development workspace</small></span></div>
 </aside>
 <div class="workspace">
-  <header class="topbar"><p>Workspace <span aria-hidden="true">/</span> <strong>Overview</strong></p><span class="public-label"><span aria-hidden="true">◈</span> Public availability</span></header>
+  <header class="topbar"><p>Workspace <span aria-hidden="true">/</span> <strong>Overview</strong></p><span class="public-label"><span aria-hidden="true">◈</span> Public availability</span><button id="header-login" class="primary-button" type="button" disabled>Sign in / register</button></header>
   <main id="main" tabindex="-1">
     <section id="overview" aria-labelledby="page-title">
       <div class="page-heading"><div><p class="eyebrow">YOUR PARKING, AT A GLANCE</p><h1 id="page-title">A little space. A clearer view.</h1><p class="subtitle">Find availability across your parking locations.</p></div><button id="refresh" class="refresh-button" type="button"><span class="refresh-icon" aria-hidden="true">↻</span> Refresh availability</button></div>
@@ -33,6 +33,7 @@
       <h2 id="account-title">Your account and vehicle</h2>
       <p id="account-message" role="status">Connecting to account service…</p>
       <button id="account-login" class="primary-button" type="button" disabled>Sign in / register</button>
+      <button id="staff-signup" class="secondary-button" type="button" disabled>Register as staff (admin approval required)</button>
       <button id="account-logout" class="secondary-button" type="button" hidden>Sign out</button>
       <button id="vehicle-open" class="primary-button" type="button" hidden>Register your vehicle</button>
       <div id="account-vehicle" class="vehicle-summary" aria-live="polite"></div>

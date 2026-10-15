@@ -10,7 +10,9 @@ def main():
     values = path.read_text(encoding='utf-8')
     for name, value in [('OIDC_CLIENT_SECRET', secrets.token_urlsafe(48)),
                         ('OIDC_ADMIN_USER', 'parking-setup-admin'),
-                        ('OIDC_ADMIN_PASSWORD', secrets.token_urlsafe(32))]:
+                        ('OIDC_ADMIN_PASSWORD', secrets.token_urlsafe(32)),
+                        ('OPS_METRICS_TOKEN',secrets.token_urlsafe(48)),
+                        ('OIDC_DRIVER_ADMIN_SECRET',secrets.token_urlsafe(48))]:
         lines = values.splitlines()
         existing = next((line for line in lines if line.startswith(name + '=')), None)
         if existing is None:

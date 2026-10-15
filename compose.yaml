@@ -21,10 +21,14 @@ services:
       dockerfile: backend/Dockerfile
     environment:
       API_DATABASE_URL: ${API_DATABASE_URL:?Set API_DATABASE_URL}
+      API_LISTEN_HOST: 0.0.0.0
+      OPS_METRICS_TOKEN: ${OPS_METRICS_TOKEN:-}
       OIDC_INTERNAL_URL: http://identity:8080
       OIDC_REALM: parking
       OIDC_ISSUER: http://127.0.0.1:8180/realms/parking
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?Run py scripts/setup_auth.py}
+      OIDC_DRIVER_ADMIN_SECRET: ${OIDC_DRIVER_ADMIN_SECRET:-}
+      REQUIRE_STAFF_MFA: ${REQUIRE_STAFF_MFA:-false}
       APP_ORIGIN: http://127.0.0.1:5173
     ports: ["127.0.0.1:8080:8080"]
     depends_on:
@@ -36,6 +40,7 @@ services:
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${OIDC_ADMIN_USER:?Run py scripts/setup_auth.py}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${OIDC_ADMIN_PASSWORD:?Run py scripts/setup_auth.py}
+      OIDC_DRIVER_ADMIN_SECRET: ${OIDC_DRIVER_ADMIN_SECRET:-}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?Run py scripts/setup_auth.py}
     volumes:
       - identity_data:/opt/keycloak/data

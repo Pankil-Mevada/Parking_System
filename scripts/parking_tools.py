@@ -19,6 +19,8 @@ def node_tools() -> tuple[Path, Path, dict[str, str]]:
     if pnpm_command:
         folder = Path(pnpm_command).parent
         candidates.extend(folder / f'node_modules/pnpm/bin/pnpm.{extension}' for extension in ('cjs', 'mjs'))
+    if os.name!='nt' and shutil.which('pnpm'):
+        candidates.insert(0,Path(shutil.which('pnpm')).resolve())
     if not node.is_file():
         raise RuntimeError('Node.js is missing. Install Node.js 24 LTS or restore the bundled Codex runtime.')
     pnpm = next((candidate for candidate in candidates if candidate.is_file()), None)
@@ -43,6 +45,9 @@ def wsl(arguments: list[str], **options) -> subprocess.CompletedProcess:
 
 
 def docker(arguments: list[str], **options) -> subprocess.CompletedProcess:
+    if os.name!='nt':
+        env=os.environ.copy();env.pop('DOCKER_HOST',None);env.pop('DOCKER_CONTEXT',None)
+        return subprocess.run(['docker','--host','unix:///var/run/docker.sock',*arguments],cwd=ROOT,env=env,check=True,**options)
     path = wsl(['wslpath', '-u', ROOT.as_posix()], capture_output=True, text=True).stdout.strip()
     executable = shutil.which('wsl.exe')
     return subprocess.run([
@@ -55,6 +60,9 @@ def docker(arguments: list[str], **options) -> subprocess.CompletedProcess:
 @contextlib.contextmanager
 def active_wsl():
     """A foreground WSL process keeps Ubuntu alive while this context is active."""
+    if os.name!='nt':
+        yield
+        return
     executable = shutil.which('wsl.exe')
     if not executable:
         raise RuntimeError('Ubuntu WSL is required. See README for local setup.')

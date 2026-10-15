@@ -20,10 +20,14 @@ services:
     profiles: [phase34]
     environment:
       API_DATABASE_URL: host=test-db port=5432 dbname=parking_test user=parking_test password=${POSTGRES_PASSWORD} connect_timeout=3
+      API_LISTEN_HOST: 0.0.0.0
+      OPS_METRICS_TOKEN: ${OPS_METRICS_TOKEN:-}
       OIDC_INTERNAL_URL: http://identity:8080
       OIDC_REALM: ${PARKING_TEST_REALM:?Use py scripts/test_phase34.py}
       OIDC_ISSUER: http://127.0.0.1:8180/realms/${PARKING_TEST_REALM}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
+      OIDC_DRIVER_ADMIN_SECRET: ${OIDC_DRIVER_ADMIN_SECRET:-}
+      REQUIRE_STAFF_MFA: ${PARKING_TEST_REQUIRE_MFA:-true}
       APP_ORIGIN: http://127.0.0.1:5173
     ports: ["127.0.0.1:18080:8080"]
     depends_on:
@@ -34,10 +38,14 @@ services:
     profiles: [phase34]
     environment:
       API_DATABASE_URL: host=test-db port=5432 dbname=parking_test user=parking_test password=${POSTGRES_PASSWORD} connect_timeout=3
+      API_LISTEN_HOST: 0.0.0.0
+      OPS_METRICS_TOKEN: ${OPS_METRICS_TOKEN:-}
       OIDC_INTERNAL_URL: http://identity:8080
       OIDC_REALM: ${PARKING_TEST_REALM:?Use py scripts/test_phase34.py}
       OIDC_ISSUER: http://127.0.0.1:8180/realms/${PARKING_TEST_REALM}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
+      OIDC_DRIVER_ADMIN_SECRET: ${OIDC_DRIVER_ADMIN_SECRET:-}
+      REQUIRE_STAFF_MFA: ${PARKING_TEST_REQUIRE_MFA:-true}
       APP_ORIGIN: http://127.0.0.1:5173
     ports: ["127.0.0.1:18081:8080"]
     depends_on:

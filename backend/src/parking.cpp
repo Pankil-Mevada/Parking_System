@@ -33,9 +33,11 @@ std::string optional(const Json::Value &body, const char *key) {
     if (body[key].isString() && body[key].asString().empty()) return "";
     return required(body,key,100);
 }
-Reply vehicle(Database &db, const Identity &actor, const drogon::HttpRequestPtr &req, const std::string &requestId) {
+Reply vehicle(Database &db, const Identity &actor, const drogon::HttpRequestPtr &req, const std::string &requestId,const std::string &owner="",const std::string &location="") {
+    auto ownerId=owner.empty()?actor.user:owner;
+    if(!location.empty())authorizeLocation(db,actor,location);
     if (req->method() == drogon::Get) {
-        auto rows = db.query("SELECT * FROM vehicles WHERE user_id=$1::uuid AND disabled_at IS NULL", {actor.user});
+        auto rows = db.query("SELECT * FROM vehicles WHERE user_id=$1::uuid AND disabled_at IS NULL", {ownerId});
         Json::Value result; result["vehicle"] = rows.size() ? vehicleJson(rows,0) : Json::Value(); return {200,result};
     }
     auto body = parseJson(std::string(req->body()));
@@ -49,15 +51,18 @@ Reply vehicle(Database &db, const Identity &actor, const drogon::HttpRequestPtr 
     if (!disable && type != "car" && type != "van" && type != "motorcycle") throw ApiError(400,"invalid_vehicle_type");
     auto make=optional(body,"make"), model=optional(body,"model"), color=optional(body,"color");
     if (disable && body.size() != 1) throw ApiError(400,"disable_requires_only_disabled");
-    db.begin(); lockUsers(db,actor,actor.user);
-    auto old = db.query("SELECT id::text FROM vehicles WHERE user_id=$1::uuid AND disabled_at IS NULL ORDER BY id FOR UPDATE",{actor.user});
-    if (db.query("SELECT 1 FROM parking_sessions WHERE user_id=$1::uuid AND checked_out_at IS NULL",{actor.user}).size()) throw ApiError(409,"end_session_before_vehicle_change");
+    db.begin(); lockUsers(db,actor,ownerId);
+    if(!location.empty())authorizeLocation(db,actor,location);
+    if(!db.query("SELECT 1 FROM users WHERE id=$1::uuid",{ownerId}).size())throw ApiError(404,"driver_not_found");
+    if(!disable && db.query("SELECT 1 FROM staff_accounts WHERE user_id=$1::uuid",{ownerId}).size())throw ApiError(409,"staff_account_cannot_register_driver_vehicle");
+    auto old = db.query("SELECT id::text FROM vehicles WHERE user_id=$1::uuid AND disabled_at IS NULL ORDER BY id FOR UPDATE",{ownerId});
+    if (db.query("SELECT 1 FROM parking_sessions WHERE user_id=$1::uuid AND checked_out_at IS NULL",{ownerId}).size()) throw ApiError(409,"end_session_before_vehicle_change");
     if (old.size()) db.query("UPDATE vehicles SET disabled_at=now(),updated_at=now() WHERE id=$1::uuid",{old.get(0,"id")});
     Json::Value result;
     if (!disable) {
         auto rows = db.query("INSERT INTO vehicles(user_id,registration_jurisdiction,normalized_registration,vehicle_type,make,model,color) "
                              "VALUES($1::uuid,upper(btrim($2)),normalize_registration($3),$4,$5,$6,$7) RETURNING *",
-                             {actor.user,jurisdiction,registration,type,make,model,color});
+                             {ownerId,jurisdiction,registration,type,make,model,color});
         result["vehicle"] = vehicleJson(rows,0); audit(db,actor,"vehicle_registered","vehicle",rows.get(0,"id"),requestId);
     } else {
         result["vehicle"] = Json::Value(); if (old.size()) audit(db,actor,"vehicle_disabled","vehicle",old.get(0,"id"),requestId);
@@ -78,7 +83,7 @@ Reply parkingAction(Database &db, const Identity &actor, const drogon::HttpReque
     fields(body,checkout ? std::vector<std::string>{} : std::vector<std::string>{"vehicleId","spaceId"});
     auto key = req->getHeader("idempotency-key");
     if (key.empty() || key.size()>200 || !std::all_of(key.begin(),key.end(),[](unsigned char c){return c>=33 && c<=126;})) throw ApiError(400,"idempotency_key_required");
-    if (!actor.mfa) throw ApiError(403,"staff_mfa_required");
+    if (staffMfaRequired() && !actor.mfa) throw ApiError(403,"staff_mfa_required");
     if (!db.query("SELECT 1 FROM staff_assignments WHERE user_id=$1::uuid LIMIT 1",{actor.user}).size()) throw ApiError(403,"location_access_denied");
     auto operation=checkout ? "check-out" : "check-in";
     auto hash=sha256(std::string(operation)+"|"+sessionId+"|"+jsonString(body));
@@ -134,12 +139,27 @@ Reply execute(Database &db, const Identity &actor, const drogon::HttpRequestPtr 
     if (path=="/api/me/vehicle") return vehicle(db,actor,req,requestId);
     if (path=="/api/staff/check-ins") return parkingAction(db,actor,req,requestId,false,"");
     std::smatch match;
+    if(std::regex_match(path,match,std::regex("/api/staff/locations/([^/]+)/drivers/([^/]+)/vehicle"))) {
+        auto location=match[1].str(),owner=match[2].str();uuid(location);uuid(owner);return vehicle(db,actor,req,requestId,owner,location);
+    }
     if (std::regex_match(path,match,std::regex("/api/staff/sessions/([^/]+)/check-out"))) return parkingAction(db,actor,req,requestId,true,match[1]);
     Json::Value response;
     if (path=="/api/me") {
         response["id"]=actor.user; response["mfa"]=actor.mfa; response["assignments"]=Json::Value(Json::arrayValue);
+        response["staffMfaRequired"]=staffMfaRequired();
+        response["accountType"]=db.query("SELECT 1 FROM staff_accounts WHERE user_id=$1::uuid",{actor.user}).size()?"staff":"driver";
         auto rows=db.query("SELECT location_id::text,role FROM staff_assignments WHERE user_id=$1::uuid ORDER BY location_id",{actor.user});
         for(int i=0;i<rows.size();++i) { Json::Value item; item["locationId"]=rows.get(i,"location_id"); item["role"]=rows.get(i,"role"); response["assignments"].append(item); }
+    } else if(path=="/api/me/staff-application") {
+        auto body=parseJson(std::string(req->body()));fields(body,{"locationId","reason"});
+        auto location=required(body,"locationId",36);uuid(location);auto reason=required(body,"reason",500);
+        db.begin();lockUsers(db,actor,actor.user);
+        if(db.query("SELECT 1 FROM vehicles WHERE user_id=$1::uuid",{actor.user}).size() || db.query("SELECT 1 FROM parking_sessions WHERE user_id=$1::uuid",{actor.user}).size())throw ApiError(409,"driver_history_requires_separate_employee_account");
+        auto email=db.query("SELECT lower(btrim(email)) AS email FROM users WHERE id=$1::uuid",{actor.user}).get(0,"email");
+        db.query("INSERT INTO staff_accounts(email,user_id,location_id,created_by) VALUES($1,$2::uuid,$3::uuid,$2::uuid)",{email,actor.user,location});
+        Json::Value changes;changes["reason"]=reason;
+        db.query("INSERT INTO audit_events(actor_id,action,target_type,target_id,request_id,sanitized_changes) VALUES($1::uuid,'staff_access_requested','location',$2::uuid,$3::uuid,$4::jsonb)",{actor.user,location,requestId,jsonString(changes)});
+        db.commit();response["requested"]=true;
     } else if (path=="/api/auth/logout") {
         db.query("INSERT INTO revoked_auth_sessions(provider_session_id,expires_at) VALUES($1,now()+interval '12 hours') ON CONFLICT DO NOTHING",{actor.session}); response["loggedOut"]=true;
     } else if (path=="/api/me/parking-session" || path=="/api/me/parking-history") {
@@ -159,6 +179,7 @@ Reply execute(Database &db, const Identity &actor, const drogon::HttpRequestPtr 
         if(role!="attendant" && role!="operator_admin" && role!="none") throw ApiError(400,"invalid_role");
         db.begin(); lockUsers(db,actor,target); authorizeLocation(db,actor,location,true);
         if(!db.query("SELECT 1 FROM users WHERE id=$1::uuid",{target}).size()) throw ApiError(404,"user_not_found");
+        if(role!="none" && !db.query("SELECT 1 FROM staff_accounts WHERE user_id=$1::uuid AND (location_id=$2::uuid OR EXISTS(SELECT 1 FROM staff_assignments WHERE user_id=$1::uuid AND location_id=$2::uuid))",{target,location}).size())throw ApiError(409,"driver_account_cannot_be_assigned_staff_role");
         if(role=="none") db.query("DELETE FROM staff_assignments WHERE user_id=$1::uuid AND location_id=$2::uuid",{target,location});
         else db.query("INSERT INTO staff_assignments(user_id,location_id,role) VALUES($1::uuid,$2::uuid,$3) ON CONFLICT(user_id,location_id) DO UPDATE SET role=excluded.role",{target,location,role});
         Json::Value changes; changes["userId"]=target; changes["role"]=role; changes["reason"]=reason;

@@ -59,13 +59,13 @@ Reply dashboard(Database &db,const Identity &actor,const drogon::HttpRequestPtr 
         auto body=parseJson(std::string(req->body())); fields(body,{"name","timezone","reason"});
         auto name=required(body,"name",200),timezone=required(body,"timezone",100); required(body,"reason",500);
         db.begin(); lockActor(db,actor);
-        if(!actor.mfa || !db.query("SELECT 1 FROM staff_assignments WHERE user_id=$1::uuid AND role='operator_admin' FOR SHARE",{actor.user}).size()) throw ApiError(403,"administrator_required");
+        if((staffMfaRequired() && !actor.mfa) || !db.query("SELECT 1 FROM staff_assignments WHERE user_id=$1::uuid AND role='operator_admin' FOR SHARE",{actor.user}).size()) throw ApiError(403,"administrator_required");
         if(!db.query("SELECT 1 FROM pg_timezone_names WHERE name=$1",{timezone}).size()) throw ApiError(400,"invalid_timezone");
         auto row=db.query("INSERT INTO locations(name,timezone) VALUES($1,$2) RETURNING id::text",{name,timezone}); auto id=row.get(0,"id");
         db.query("INSERT INTO staff_assignments(user_id,location_id,role) VALUES($1::uuid,$2::uuid,'operator_admin')",{actor.user,id});
         record(db,actor,"location_created","location",id,requestId,body); db.commit(); result["id"]=id; return {201,result};
     }
-    if(!std::regex_match(path,match,std::regex("/api/(locations|staff/locations|admin/locations)/([^/]+)/(dashboard|events|vehicles|configuration|zones|spaces|audit|staff-list|users)"))) throw ApiError(404,"not_found");
+    if(!std::regex_match(path,match,std::regex("/api/(locations|staff/locations|admin/locations)/([^/]+)/(dashboard|events|vehicles|drivers|configuration|zones|spaces|audit|staff-list|staff-accounts|users)"))) throw ApiError(404,"not_found");
     auto scope=match[1].str(), location=match[2].str(),operation=match[3].str(); uuid(location);
     if(!db.query("SELECT 1 FROM locations WHERE id=$1::uuid",{location}).size()) throw ApiError(404,"location_not_found");
     bool staff=scope!="locations", admin=scope=="admin/locations";
@@ -73,6 +73,7 @@ Reply dashboard(Database &db,const Identity &actor,const drogon::HttpRequestPtr 
     if(operation=="dashboard" || operation=="events") {
         if(staff) db.commit();
         publishOutbox(db);
+        if(operation=="events")db.query("INSERT INTO client_health(user_id,provider_session_id,location_id) VALUES($1::uuid,$2,$3::uuid) ON CONFLICT(user_id,provider_session_id,location_id) DO UPDATE SET last_seen=now() WHERE client_health.last_seen<now()-interval '10 seconds'",{actor.user,actor.session,location});
         db.begin(); db.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
         if(staff) authorizeLocation(db,actor,location,admin);
         auto cursor=db.query("SELECT coalesce(max(id),0)::text AS cursor FROM delivery_events").get(0,"cursor");
@@ -153,11 +154,24 @@ Reply dashboard(Database &db,const Identity &actor,const drogon::HttpRequestPtr 
         if(!db.query("SELECT 1 FROM zones WHERE id=$1::uuid AND location_id=$2::uuid",{zone,location}).size()) throw ApiError(400,"zone_location_mismatch");
         auto row=db.query("INSERT INTO spaces(location_id,zone_id,label,supported_vehicle_type) VALUES($1::uuid,$2::uuid,$3,$4) RETURNING id::text",{location,zone,required(body,"label",64),type});
         auto id=row.get(0,"id"); notify(db,id); result["id"]=id; record(db,actor,"space_created","space",id,requestId,body);
+    } else if(admin && operation=="staff-accounts" && req->method()==drogon::Post) {
+        auto body=parseJson(std::string(req->body()));fields(body,{"email","reason"});required(body,"reason",500);
+        auto email=required(body,"email",200);
+        if(!std::regex_match(email,std::regex("[^\\s@]+@[^\\s@]+\\.[^\\s@]+")))throw ApiError(400,"invalid_email");
+        db.commit();db.begin();
+        db.query("SELECT pg_advisory_xact_lock(hashtextextended(lower(btrim($1)),518))",{email});
+        lockActor(db,actor);authorizeLocation(db,actor,location,true);
+        if(db.query("SELECT 1 FROM users WHERE lower(btrim(email))=lower(btrim($1))",{email}).size())throw ApiError(409,"existing_account_use_separate_staff_email");
+        db.query("INSERT INTO staff_accounts(email,location_id,created_by) VALUES(lower(btrim($1)),$2::uuid,$3::uuid)",{email,location,actor.user});
+        record(db,actor,"staff_account_approved","location",location,requestId,body);result["approved"]=true;
+    } else if(admin && operation=="staff-accounts" && req->method()==drogon::Get) {
+        result["staffAccounts"]=objects(db.query("SELECT c.email,c.user_id::text,u.display_name,u.status,a.role FROM staff_accounts c LEFT JOIN users u ON u.id=c.user_id LEFT JOIN staff_assignments a ON a.user_id=c.user_id AND a.location_id=$1::uuid WHERE c.location_id=$1::uuid OR a.user_id IS NOT NULL ORDER BY c.email LIMIT 100 OFFSET $2::integer",{location,boundedNumber(req->getParameter("offset"),"invalid_offset")}),{"email","user_id","display_name","status","role"});
+        record(db,actor,"staff_accounts_read","location",location,requestId);
     } else if(admin && operation=="staff-list" && req->method()==drogon::Get) {
         result["staff"]=objects(db.query("SELECT u.id::text,u.display_name,u.email,a.role FROM staff_assignments a JOIN users u ON u.id=a.user_id WHERE a.location_id=$1::uuid ORDER BY u.id LIMIT 100 OFFSET $2::integer",{location,boundedNumber(req->getParameter("offset"),"invalid_offset")}),{"id","display_name","email","role"}); record(db,actor,"staff_list_read","location",location,requestId);
-    } else if(admin && operation=="users" && req->method()==drogon::Get) {
+    } else if(((admin && operation=="users") || (staff && operation=="drivers")) && req->method()==drogon::Get) {
         auto email=req->getParameter("email"); if(email.empty() || email.size()>200) throw ApiError(400,"exact_email_required");
-        result["users"]=objects(db.query("SELECT u.id::text,u.display_name,u.email,u.status,v.id::text AS vehicle_id,v.normalized_registration,v.registration_jurisdiction FROM users u LEFT JOIN vehicles v ON v.user_id=u.id AND v.disabled_at IS NULL WHERE lower(u.email)=lower($1) ORDER BY u.id LIMIT 10",{email}),{"id","display_name","email","status","vehicle_id","normalized_registration","registration_jurisdiction"});
+        result["users"]=objects(db.query("SELECT u.id::text,u.display_name,u.email,u.status,v.id::text AS vehicle_id,v.normalized_registration,v.registration_jurisdiction FROM users u LEFT JOIN vehicles v ON v.user_id=u.id AND v.disabled_at IS NULL WHERE lower(u.email)=lower($1) AND NOT EXISTS(SELECT 1 FROM staff_accounts c WHERE c.user_id=u.id) ORDER BY u.id LIMIT 10",{email}),{"id","display_name","email","status","vehicle_id","normalized_registration","registration_jurisdiction"});
         record(db,actor,"user_lookup","location",location,requestId);
     } else if(admin && operation=="users" && req->method()==drogon::Put) {
         // Account changes apply across this single operator. Do not use for multi-tenant deployment.

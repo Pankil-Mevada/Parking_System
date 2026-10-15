@@ -27,7 +27,8 @@ def wait(url):
 def run():
     import os
     parser = argparse.ArgumentParser(description='Run tests and retain all committed records for inspection.')
-    parser.add_argument('--test-name', help='Optional unittest name substring, e.g. test_03_two_vehicles')
+    parser.add_argument('--test-name',action='append',help='Optional unittest name substring; repeat to select several groups.')
+    parser.add_argument('--password-only',action='store_true',help='Use local email/password mode for matching dedicated tests.')
     args = parser.parse_args()
     if not (ROOT / '.tools/test-python/psycopg').is_dir():
         raise RuntimeError('Install test prerequisites: py -m pip install --target .tools/test-python -r requirements-test.txt')
@@ -36,7 +37,7 @@ def run():
     folder = ROOT / '.tools/test-runs'
     folder.mkdir(parents=True, exist_ok=True)
     env_file = folder / (run_id + '.env')
-    env_file.write_text('PARKING_TEST_REALM=' + realm_name + '\n', encoding='utf-8')
+    env_file.write_text('PARKING_TEST_REALM=' + realm_name + '\nPARKING_TEST_REQUIRE_MFA='+('false' if args.password_only else 'true')+'\n', encoding='utf-8')
     relative_env = env_file.relative_to(ROOT).as_posix()
     compose = ['compose', '--env-file', '.env', '--env-file', relative_env,
                '-f', 'compose.yaml', '-f', 'compose.test.yaml', '--profile', 'phase34']
@@ -57,6 +58,7 @@ def run():
     # Retained per-case container restarts make the full suite longer than the
     # normal five-minute browser token; this applies only to synthetic test realms.
     realm['accessTokenLifespan'] = 1800
+    realm['browserFlow']='parking-password' if args.password_only else 'parking-mfa'
     realm['authenticationFlows'].append({
         'alias': 'test-password-only', 'providerId': 'basic-flow', 'topLevel': True, 'builtIn': False,
         'authenticationExecutions': [{'authenticator': 'auth-username-password-form',
@@ -64,6 +66,8 @@ def run():
     })
     realm['clients'][1]['secret'] = environment()['OIDC_CLIENT_SECRET']
     request(IDENTITY + '/admin/realms', realm, token)
+    from driver_identity_service import configure_driver_service
+    configure_driver_service(realm_name)
     try:
         docker(compose + ['up', '-d', '--wait', '--wait-timeout', '60', 'test-db'])
         docker(compose + ['exec', '-T', 'test-db', 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', 'parking_test', '-d', 'parking_test', '-c',
@@ -78,9 +82,10 @@ def run():
         env['PARKING_TEST_RUN_ID'] = run_id
         env['PARKING_TEST_REALM'] = realm_name
         env['PARKING_TEST_ENV_FILE'] = relative_env
+        env['PARKING_TEST_PASSWORD_ONLY']='1' if args.password_only else '0'
         command=[sys.executable, '-m', 'unittest', 'discover', '-s', 'tests', '-p', 'test_phase34.py', '-v']
         if args.test_name:
-            command.extend(['-k',args.test_name])
+            for pattern in args.test_name:command.extend(['-k',pattern])
         subprocess.run(command, cwd=ROOT, env=env, check=True)
         record['status'] = 'passed'
     except Exception:

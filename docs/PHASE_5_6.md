@@ -25,6 +25,12 @@ choice: real recipient addresses are accepted, but email is captured locally.
 
 ## UI and initial administrator
 
+The UI now separates roles into focused sidebar screens. Read the
+[role UI and manual walkthrough](ROLE_UI_GUIDE.md). **Switch workspace** replaces
+the old Dashboard role dropdown; the public demo is hidden after sign-in. Staff
+use separate check-in and check-out screens. Administration has separate location,
+floor/space, user/staff and audit screens instead of one combined long page.
+
 - Driver: vehicle dialog, location selection, floor counts, own current location,
   floor, space, arrival, elapsed minutes and paginated history. Other identities
   are never sent to drivers.
