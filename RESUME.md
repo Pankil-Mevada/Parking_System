@@ -1,5 +1,88 @@
 # Resume here — VehicleParkingSystem
 
+GitHub checkpoint prepared 2026-10-15: account type selection, mandatory driver/
+employee approval, direct owner-admin setup, product-only public UI, name/email
+search, migration 006, updated API contract and regression/browser tests.
+Most recent owner-requested reset removed all three development login accounts
+and associated parking records, cleared Mailpit and restored six demo spaces.
+Isolated test databases and backups remain. Current admin setup command is
+`py scripts/grant_local_admin.py --email admin@gmail.com --create`; omitting
+`--create` expects an existing verified provider account. No automatic reset.
+Earlier setup/test notes below are historical checkpoints, not current user data.
+
+Administrator clarification: owner-provisioned admins do not require another
+admin's approval. Latest requested reset removed admin@gmail.com; inspection
+confirmed no provider/app identity existed. Added local-only `--create` to
+grant_local_admin.py: create identity if missing, grant audited location role
+before first app login, and send Mailpit verification/private-password setup.
+No default password; verification remains enforced. UI distinguishes direct
+administrator sign-in from pending Driver/Employee registration. Executed local
+setup for admin@gmail.com; approved/employee/operator_admin verified in DB.
+Owner must complete the Mailpit setup link and choose their private password.
+Frontend build, 5 frontend checks and 2 API smoke checks passed. No data reset.
+
+Mandatory approval workflow (supersedes earlier onboarding notes): migration 006
+adds registration_kind and pending/approved/rejected approval_status. New driver
+and employee accounts require an explicit type selection and admin decision.
+Pending accounts can only read /api/me, submit type once, or logout; all parking
+APIs and SSE batches require approval. Target driver must also be approved before
+vehicle writes/check-in. Signed-out frontend is a product introduction and does
+not fetch locations. Admin Account approvals approves/rejects registrations and
+assigns employees an explicit role at the selected location. Bootstrap helper
+approves the first local owner; no public administrator signup. Existing assigned
+staff/admins preserved, other accounts made pending without deleting history.
+C++ and frontend builds, 5 frontend checks and 2 API smoke checks passed. Local
+password-only run 1ae77180-49a3-4e05-9576-7576b94f6d5f passed tests 43/48/49
+(15.359s); browser coverage includes product-only landing, type selection and
+pending screen. Full strict run 2b97b816-bc0e-48fa-b4f2-f13a62025e94 ran 49:
+46 passed, 1 password-only skip, and 2 affected cases initially failed. Updated
+the old pending-access expectation and replaced reload with in-page status checks
+to preserve authentication. Both affected tests 39/49 then passed in retained
+strict run 3b878b76-ad81-49be-940b-ecf0910d1783 (17.235s), including actual admin
+UI approval and transition into the assigned staff workspace. Final pagination
+and name/email-filter tests 42/48/49 passed in password-only run
+6d100d34-f0ae-4453-ba83-abcf8a9064d3. That run exposed a browser-test wait race
+at the emailed password-setup redirect in test 36; corrected the wait. Targeted
+password-only test 36 passed (26.861s), retained run
+0d813866-b01d-4670-ae32-4e18fd5b89c7. No remaining observed failures. Local code
+and documentation changes are unpushed. Development admin remains approved;
+staff@gmail.com is pending and must select Employee and submit its request.
+
+Admin onboarding correction: Add / approve an employee account now accepts an
+already registered enabled identity only if it has no vehicle/session history.
+Enrollment creates a pending employee profile; location role remains a separate
+admin action. No account was automatically promoted. C++/frontend builds passed;
+test 47 passed (5.257s), retained run 79793899-aaba-4b2e-b32d-00074741b0d9,
+proving denial before assignment, admin-only enrollment and driver-history guard.
+
+Owner correction: staff@gmail.com must await administrator assignment. Removed
+the temporary attendant assignment and audited revocation; employee profile stays
+listed for admin approval. Pending employees now see only a waiting screen,
+refresh/sign-out, with no driver/staff menus or location/workspace selectors.
+Frontend build passed. Administrator must assign role through Staff accounts.
+
+Name/email lookup: driver lookup now accepts exact email or a name substring
+(minimum two characters, maximum 20 results); admin staff list has name/email
+filtering. Employee accounts remain excluded from driver search. C++ and frontend
+builds passed; retained password-only run `4502b212-9afa-4850-8364-4a66bac86ffb`
+passed tests 43 and 46 (9.593s), including role/location denial and injection text.
+Owner-identified staff@gmail.com had no staff profile after the requested reset;
+confirmed no vehicle/session history, then assigned attendant at Demo parking
+location with an audit event. Driver and admin records preserved. Local, unpushed.
+
+Driver/staff separation UI correction: normal driver pages no longer show the
+staff-access request button. Employee enrollment is available only through the
+separate staff-signup flow, preserving its intent through login. Browser test
+asserts the driver has no staff request control and verifies separate employee
+enrollment. TypeScript/build passed; password-only browser run
+`de282ef5-aed0-4c02-b391-ef42cd07e619` passed (34.330s). Local, not yet pushed.
+
+Latest product UI change: only the header has **Sign in / register**; the duplicate
+account/vehicle button is removed. Direct header login/logout wiring verified by
+real password-only browser run `033ac3cd-ded6-443d-a8aa-d867d5d510b3` (passed,
+32.548s), which asserts exactly one sign-in entry before login. TypeScript/build
+and 5 frontend checks passed. This change is local and not yet pushed.
+
 Checkpoint prepared for check-in on 2026-10-15. Use `git log -1 --oneline` for the
 exact commit containing this note. Current manual steps are in `docs/ROLE_UI_GUIDE.md`.
 Resume phase 7 from its visible blockers in `docs/PHASE_7.md`; phases 1–6 are locally

@@ -17,7 +17,7 @@ def measure(url,concurrency=20,duration=10,token=None,location=None):
     parsed=urllib.parse.urlsplit(url)
     if parsed.scheme!='http' or parsed.hostname not in ('127.0.0.1','localhost') or parsed.port not in (8080,18080,18081) or parsed.username or parsed.password or parsed.path not in ('','/') or parsed.query or parsed.fragment:raise RuntimeError('Load tests are restricted to the local parking API.')
     if not 1<=concurrency<=500 or not 1<=duration<=120:raise RuntimeError('Bounded load requires 1–500 workers and 1–120 seconds.')
-    paths=['/api/health','/api/ready','/api/locations']
+    paths=['/api/health','/api/ready']
     if token:
         if not location:raise RuntimeError('Authenticated load requires a location.')
         uuid.UUID(location);paths=['/api/me/dashboard',f'/api/locations/{location}/dashboard',f'/api/locations/{location}/events?after=0']

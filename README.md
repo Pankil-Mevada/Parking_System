@@ -1,9 +1,10 @@
 # VehicleParkingSystem
 
-**Latest local workflow:** email/password login, no authenticator/OTP requirement.
-Staff can create driver accounts, send setup links to local Mailpit, register/manage
-driver vehicles and confirm parking. Staff can register first and request access;
-an administrator assigns their location role afterward. See the current
+**Latest local workflow:** email/password verification, required Driver/user or
+Employee selection, and administrator approval for both account types. Pending
+accounts cannot access parking information. Signed-out visitors see only the
+product introduction. Approved staff manage driver vehicles and confirm parking
+at assigned locations. See the current
 [manual guide](docs/ROLE_UI_GUIDE.md). Existing accounts/passwords/history are preserved.
 
 **Driver/staff separation:** admin navigation now separates **Drivers** from
@@ -11,7 +12,7 @@ an administrator assigns their location role afterward. See the current
 assigns their location role. Pre-approving an unused employee email remains optional.
 Driver accounts with vehicle/parking history cannot be
 assigned staff roles. See [employee onboarding](docs/ROLE_UI_GUIDE.md).
-Database migration 005 is required; existing assigned staff/admin accounts are preserved.
+Database migration 006 is required; existing assigned staff/admin accounts are preserved.
 
 **Phase 7 is in progress:** [operations commands and explicit launch blockers](docs/PHASE_7.md),
 [incident/recovery/pilot runbook](docs/OPERATIONS_RUNBOOK.md), and
@@ -36,7 +37,7 @@ work and verified tests.
 Authentication/MFA, scoped roles and transactional parking remain documented in
 [phases 3–4](docs/PHASE_3_4.md).
 The phase 1–2 setup and verification history below is retained for context; the
-database now needs migrations through 005 and the identity services. Driver,
+database now needs migrations through 006 and the identity services. Driver,
 staff/admin dashboards and PostgreSQL-backed finite SSE batches are implemented.
 Phase 7 launch verification and phase 8 hardware integration remain.
 
@@ -386,3 +387,32 @@ the API still runs as UID/GID 65534, with `/var/lib/parking` writable for Drogon
 files and no upload-directory permission errors. API tests now wait for readiness before
 asserting responses, avoiding a race with container startup/WSL localhost forwarding.
 All five scaffold/API checks passed immediately after recreating the corrected container.
+# Account registration and approval
+
+Open http://127.0.0.1:5173/ for the product introduction. Select **Create account**,
+then **Driver / user** or **Employee**, complete provider registration and email
+verification in http://127.0.0.1:8025/. Both types wait for approval; password
+verification alone gives no parking access. If registration starts directly at
+the identity provider, the app requires the type selection before submission.
+
+An approved administrator opens **Account approvals**, reviews the name/email/type,
+selects Approve or Reject and enters a reason. Employee approval also requires an
+explicit location role. The applicant clicks **Check approval status** or signs in
+again. New accounts created by staff also require admin approval before parking.
+
+Administrator accounts do not wait for another administrator's approval. Create
+the first local owner directly with:
+
+```powershell
+py scripts/grant_local_admin.py --email admin@gmail.com --create
+```
+
+Open http://127.0.0.1:8025/ and use the setup email to verify and choose a private
+password, then sign in directly. There is no default password. The script creates
+the parking identity and audited location role without a preliminary app login.
+For an existing verified owner account, omit `--create`. This is local development
+setup only; public registration never grants administrator privileges. Driver and
+Employee accounts still require UI approval. Migration 006 preserves assigned
+staff/admin access and requires approval for other existing accounts; data remains.
+
+Verify this flow: `py scripts/test_phase34.py --password-only --test-name test_48 --test-name test_49`.

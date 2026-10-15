@@ -9,10 +9,10 @@ test('public query returns aggregates without selecting driver identity', () => 
   assert.doesNotMatch(source, /JOIN users|JOIN vehicles|registration_snapshot|identity_provider_reference/);
 });
 test('frontend uses safe text rendering and bounded requests', () => {
-  const source = read('frontend/main.ts');
+  const source = read('frontend/account.ts') + read('frontend/dashboard.ts');
   assert.doesNotMatch(source, /innerHTML|localStorage/);
   assert.match(source, /AbortController/);
-  assert.match(source, /snapshot is stale/);
+  assert.match(source, /data may be stale/);
 });
 test('migration runner serializes and records transactional migrations', () => {
   const source = read('database/migrate.sql');

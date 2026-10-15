@@ -2,9 +2,7 @@ import Keycloak from 'keycloak-js';
 import { startDashboard } from './dashboard';
 
 const message = document.querySelector<HTMLParagraphElement>('#account-message')!;
-const login = document.querySelector<HTMLButtonElement>('#account-login')!;
-const headerLogin=document.querySelector<HTMLButtonElement>('#header-login')!;
-headerLogin.addEventListener('click',()=>login.click());
+const login = document.querySelector<HTMLButtonElement>('#header-login')!;
 const logout = document.querySelector<HTMLButtonElement>('#account-logout')!;
 const staffSignup=document.querySelector<HTMLButtonElement>('#staff-signup')!;
 const form = document.querySelector<HTMLFormElement>('#vehicle-form')!;
@@ -56,9 +54,16 @@ async function initialize(): Promise<void> {
     }
     login.disabled = false;
     staffSignup.disabled=false;
-    staffSignup.addEventListener('click',()=>{void identity.register({redirectUri:window.location.origin+'/#staff-signup'});});
-    headerLogin.disabled=false;
-    login.addEventListener('click', () => { void identity.login({ redirectUri: window.location.origin + '/' }); });
+    document.querySelector('#registration-cancel')!.addEventListener('click',()=>document.querySelector<HTMLDialogElement>('#registration-choice')!.close());
+    staffSignup.addEventListener('click',()=>{
+      const choice=document.querySelector<HTMLDialogElement>('#registration-choice')!;choice.showModal();
+    });
+    document.querySelector<HTMLFormElement>('#registration-choice-form')!.addEventListener('submit',event=>{
+      event.preventDefault();const kind=document.querySelector<HTMLSelectElement>('#registration-kind')!.value;
+      if(!kind)return;sessionStorage.setItem('parking-registration-kind',kind);
+      void identity.register({redirectUri:window.location.origin+'/'});
+    });
+    login.addEventListener('click', () => { void identity.login({ redirectUri: window.location.origin + '/' + (window.location.hash==='#staff-signup'?'#staff-signup':'') }); });
     logout.addEventListener('click', () => {
       stopDashboard();
       void api('/api/auth/logout', 'POST').then(() => {
@@ -68,36 +73,39 @@ async function initialize(): Promise<void> {
       })
         .catch(error => { message.textContent = String(error); });
     });
-    if (!authenticated) { message.textContent = 'Sign in with email and password. New accounts verify email through local Mailpit. Staff registration requires administrator approval.'; return; }
+    if (!authenticated) { message.textContent = 'Drivers and employees: create an account and wait for approval. Administrators: sign in directly with your owner-provisioned account; no approval is needed. Email verification and password setup use local Mailpit.'; return; }
     login.hidden = true; logout.hidden = false;
-    headerLogin.hidden=true;
-    const me = await api('/api/me');
+    let me = await api('/api/me');
     staffSignup.hidden=true;
-    if(me.accountType==='driver') {
-      const apply=document.createElement('button');apply.type='button';apply.className='secondary-button';apply.textContent='Request staff access (employees only)';
-      apply.addEventListener('click',()=>{void (async()=>{
-        const data=await api('/api/locations');
-        const panel=document.createElement('form');panel.className='workspace-form';
-        const heading=document.createElement('h3');heading.textContent='Request staff access';
-        const label=document.createElement('label');label.textContent='Work location';const select=document.createElement('select');select.setAttribute('aria-label','Work location');
-        for(const location of data.locations as Record<string,string>[])select.append(new Option(location.name,location.id));label.append(select);
-        const reasonLabel=document.createElement('label');reasonLabel.textContent='Reason / employee details';const reason=document.createElement('input');reason.required=true;reason.maxLength=500;reasonLabel.append(reason);
-        const submit=document.createElement('button');submit.type='submit';submit.textContent='Send staff access request';
-        const warning=document.createElement('p');warning.textContent='For employees only. Existing parking customers with vehicle history must use a separate employee email. This request grants no permissions until administrator approval.';
-        const feedback=document.createElement('p');feedback.setAttribute('role','status');panel.append(heading,warning,label,reasonLabel,submit,feedback);
-        panel.addEventListener('submit',event=>{event.preventDefault();submit.disabled=true;void api('/api/me/staff-application','POST',{locationId:select.value,reason:reason.value}).then(()=>{
-          feedback.textContent='Staff request saved. Ask your administrator to assign your location role, then sign out and sign in again.';apply.hidden=true;open.hidden=true;
-        }).catch(error=>{feedback.textContent=String(error);submit.disabled=false;});});
-        const application=document.createElement('dialog');application.setAttribute('aria-label','Request staff access');
-        const close=document.createElement('button');close.type='button';close.textContent='Close';close.addEventListener('click',()=>application.close());
-        application.append(panel,close);application.addEventListener('close',()=>application.remove());document.body.append(application);application.showModal();
-      })().catch(error=>{message.textContent=String(error);});});
-      document.querySelector('#account-section')!.append(apply);
-      if(window.location.hash==='#staff-signup')setTimeout(()=>apply.click(),0);
+    document.querySelector<HTMLElement>('#product-intro')!.hidden=true;
+    if(me.approvalStatus!=='approved') {
+      const intent=sessionStorage.getItem('parking-registration-kind');
+      if(!me.registrationKind && (intent==='driver' || intent==='employee')) {
+        await api('/api/me/registration','POST',{kind:intent});sessionStorage.removeItem('parking-registration-kind');me=await api('/api/me');
+      }
+      for(const id of ['overview','location-section','preview-section'])document.getElementById(id)!.hidden=true;
+      const account=document.querySelector<HTMLElement>('#account-section')!;account.hidden=false;
+      document.querySelector('#account-title')!.textContent=me.approvalStatus==='rejected'?'Account request rejected':'Your approval is pending';
+      message.textContent=me.approvalStatus==='rejected'?'Contact your administrator about this decision.':'Your account cannot access parking information until an administrator approves it.';
+      open.hidden=true;vehicle.textContent='';document.querySelector('.sidebar nav')!.replaceChildren();
+      document.querySelector('.topbar strong')!.textContent='Account approval';document.querySelector('.public-label')!.textContent='No parking access';
+      if(!me.registrationKind) {
+        const selection=document.createElement('form');selection.className='workspace-form';const label=document.createElement('label');label.textContent='Account type';
+        const kind=document.createElement('select');kind.setAttribute('aria-label','Account type');kind.required=true;kind.append(new Option('Select account type',''),new Option('Driver / user','driver'),new Option('Employee','employee'));label.append(kind);
+        const submit=document.createElement('button');submit.className='primary-button';submit.textContent='Submit for approval';selection.append(label,submit);account.append(selection);
+        selection.addEventListener('submit',event=>{event.preventDefault();submit.disabled=true;void api('/api/me/registration','POST',{kind:kind.value}).then(()=>{selection.remove();message.textContent='Your registration has been submitted. Your approval is pending.';}).catch(error=>{message.textContent=String(error);submit.disabled=false;});});
+      }
+      const refresh=document.createElement('button');refresh.textContent='Check approval status';refresh.addEventListener('click',()=>{refresh.disabled=true;void api('/api/me').then(async profile=>{if(profile.approvalStatus==='approved'){refresh.remove();await activate(profile);}else{message.textContent=profile.approvalStatus==='rejected'?'Your request was rejected. Contact your administrator.':'Your approval is still pending.';refresh.disabled=false;}}).catch(error=>{message.textContent=String(error);refresh.disabled=false;});});account.append(refresh);
+      refresh.className='secondary-button';
+      return;
     }
+    async function activate(profile:Record<string,unknown>):Promise<void> {
+    me=profile;
     message.textContent = `Signed in as ${identity.tokenParsed?.email ?? 'your parking account'}.`;
+    document.querySelector<HTMLElement>('.sidebar nav')!.hidden=false;
+    document.querySelector('#account-title')!.textContent='Your account and vehicle';
     stopDashboard = startDashboard(api, me, async () => {await identity.updateToken(30);return identity.token!;});
-    identity.onAuthLogout = () => {stopDashboard();dialog.close();open.hidden=true;vehicle.textContent='';message.textContent='Session ended. Sign in again.';login.hidden=false;headerLogin.hidden=false;};
+    identity.onAuthLogout = () => {stopDashboard();dialog.close();open.hidden=true;vehicle.textContent='';message.textContent='Session ended. Sign in again.';login.hidden=false;};
     showVehicle(await api('/api/me/vehicle'));
     open.hidden = me.accountType === 'staff';
     if(me.accountType==='staff')vehicle.textContent='Employee account. Driver vehicle registration uses a separate driver account.';
@@ -112,6 +120,8 @@ async function initialize(): Promise<void> {
         message.textContent = `Signed in as ${identity.tokenParsed?.email ?? 'your parking account'}. Vehicle saved.`;
       }).catch(error => { feedback.textContent = String(error); }).finally(() => { submit.disabled = false; });
     });
+    }
+    await activate(me);
   } catch { message.textContent = 'Account service unavailable. Start the identity service and refresh to retry.'; }
 }
 void initialize();

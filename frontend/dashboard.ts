@@ -43,7 +43,7 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
   const views: Record<string,[string,string,string][]> = {
     driver:[['dashboard','My dashboard','Your current parking session and the next step.'],['availability','Find parking','Choose a location and compare available spaces by floor.'],['vehicle','My vehicle','Register or replace the one vehicle linked to your account.'],['history','My parking history','Review your own arrivals and departures.']],
     attendant:[['occupancy','Space occupancy','View parking spaces and location availability.'],['drivers','Driver accounts & vehicles','Create driver accounts and register or manage their vehicles.'],['checkin','Check in a vehicle','Find a registered vehicle and confirm its physical arrival.'],['checkout','Check out a vehicle','Select an occupied space and confirm departure.']],
-    operator_admin:[['overview','Location overview','Monitor capacity and occupancy at this location.'],['spaces','Floors & spaces','Configure floors, numbered spaces, compatibility and maintenance.'],['locations','Location settings','Edit this location or create another location.'],['drivers','Drivers','Find driver accounts and manage their vehicles. Drivers cannot be assigned staff roles.'],['people','Staff accounts','Approve separate employee accounts and assign their location roles.'],['audit','Audit records','Search recorded actions at this location.'],['operations','Check-in / check-out','Perform authorized staff parking operations.']],
+    operator_admin:[['approvals','Account approvals','Approve driver and employee registration requests.'],['overview','Location overview','Monitor capacity and occupancy at this location.'],['spaces','Floors & spaces','Configure floors, numbered spaces, compatibility and maintenance.'],['locations','Location settings','Edit this location or create another location.'],['drivers','Drivers','Find driver accounts and manage their vehicles. Drivers cannot be assigned staff roles.'],['people','Staff accounts','Approve separate employee accounts and assign their location roles.'],['audit','Audit records','Search recorded actions at this location.'],['operations','Check-in / check-out','Perform authorized staff parking operations.']],
   };
   const controls = node('div', '', 'workspace-controls');
   const location = node('select'); location.setAttribute('aria-label', 'Parking location');
@@ -66,6 +66,15 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
   const topbarTitle=document.querySelector<HTMLElement>('.topbar strong')!;
   const publicLabel=document.querySelector<HTMLElement>('.public-label')!;
   function applyView():void {
+    for(const label of controls.querySelectorAll('label'))label.hidden=setupPending;
+    if(setupPending) {
+      badge.textContent='Pending staff approval';title.textContent='Waiting for administrator approval';
+      description.textContent='Your employee account is registered. An administrator must approve and assign your location access before you can work.';
+      topbarTitle.textContent='Pending approval';publicLabel.textContent='Pending staff approval';
+      for(const panel of [account,session,history,floors,spaces,pages,filters,staff,admin])panel.hidden=true;
+      navigation.replaceChildren(node('span','Pending approval','nav-item active'));
+      navigationKey='pending';return;
+    }
     const workspace=role.value || 'driver';
     const available=views[workspace] ?? views.driver;
     if(!available.some(([key])=>key===activeView))activeView=available[0][0];
@@ -80,7 +89,7 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
     staff.hidden=!['checkin','operations','drivers'].includes(activeView) || workspace==='driver';
     if(activeView==='drivers' && workspace!=='attendant')staff.hidden=true;
     for(const child of staff.children)if(child instanceof HTMLElement)child.hidden=child.dataset.view!==activeView && !(activeView==='operations' && child.dataset.view==='checkin');
-    admin.hidden=workspace!=='operator_admin' || !['locations','spaces','people','drivers','audit'].includes(activeView);
+    admin.hidden=workspace!=='operator_admin' || !['approvals','locations','spaces','people','drivers','audit'].includes(activeView);
     for(const child of admin.children) {
       if(child instanceof HTMLElement)child.hidden=child.dataset.view!==activeView;
     }
@@ -288,8 +297,8 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
       created.replaceChildren(node('p',result.setupEmailSent?'Driver account created. Open the setup email in local Mailpit to verify email and choose a password.':'Driver account saved, but setup email was not sent. Retry the same form to send the setup link.'));
     });create.dataset.view='drivers';create.querySelector('button')!.textContent='Create driver and send setup email';
     const foundDriver=node('div','','staff-driver-results');foundDriver.dataset.view='drivers';
-    const find=form('Find a driver to register or manage a vehicle',[['email','Exact driver email','driver@example.com']],async body=>{
-      const data=await api(`/api/staff/locations/${selectedLocation}/drivers?email=${encodeURIComponent(body.email)}`);
+    const find=form('Find a driver to register or manage a vehicle',[['search','Driver name or email','Name or driver@example.com']],async body=>{
+      const data=await api(`/api/staff/locations/${selectedLocation}/drivers?${body.search.includes('@')?'email':'name'}=${encodeURIComponent(body.search)}`);
       foundDriver.replaceChildren();
       for(const owner of data.users as Row[]) {
         let details:Row={};
@@ -319,6 +328,28 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
     admin.replaceChildren(); if (role.value !== 'operator_admin') return;
     const ticket = subscription;
     const base = `/api/admin/locations/${location.value}`;
+    const approvalPanel=node('div');approvalPanel.dataset.view='approvals';admin.append(approvalPanel);
+    let approvalOffset=0;const approvalSearch=node('input');approvalSearch.maxLength=200;approvalSearch.setAttribute('aria-label','Applicant name or email');
+    async function showApprovals():Promise<void> {
+      const data=await api(base+'/approvals?offset='+approvalOffset+'&search='+encodeURIComponent(approvalSearch.value));if(stopped || ticket!==subscription)return;
+      approvalPanel.replaceChildren(node('h2','Pending account approvals'),node('p','Approve drivers before parking access. Approve employees with a role for this location. Decisions require a reason and are audited.'));
+      const requests=data.requests as Row[];
+      approvalPanel.append(labeled('Applicant name or email',approvalSearch),button('Find requests',()=>{approvalOffset=0;void showApprovals().catch(fail);}));
+      for(const request of requests) {
+        const decision=form(`${request.display_name} · ${request.email} · ${request.registration_kind}`, [['reason','Reason','Explain the approval or rejection']],async body=>{
+          await mutate(base+'/approvals','POST',{userId:request.id,decision:choice.value,role:employeeRole.value,...body});await showApprovals();
+        });
+        const choice=node('select');choice.append(new Option('Select decision',''),new Option('Approve','approved'),new Option('Reject','rejected'));choice.required=true;
+        const employeeRole=node('select');employeeRole.append(new Option('Attendant','attendant'),new Option('Operator administrator','operator_admin'));
+        decision.insertBefore(labeled('Decision',choice),decision.querySelector('button'));
+        if(request.registration_kind==='employee')decision.insertBefore(labeled('Location role',employeeRole),decision.querySelector('button'));
+        decision.querySelector('button')!.textContent='Save decision';approvalPanel.append(decision);
+      }
+      if(!requests.length)approvalPanel.append(node('p','No pending account requests.'));
+      const previous=button('Previous requests',()=>{approvalOffset=Math.max(0,approvalOffset-100);void showApprovals().catch(fail);});previous.disabled=approvalOffset===0;
+      const next=button('Next requests',()=>{approvalOffset+=100;void showApprovals().catch(fail);});next.disabled=requests.length<100;approvalPanel.append(previous,next);
+    }
+    await showApprovals();
     const data = await api(base + '/configuration'); if (stopped || ticket !== subscription || role.value !== 'operator_admin') return;
     const config = data.location as Row;
     admin.append(node('h2', 'Location administration'), node('p', 'Changes require a reason and are audited. Account status applies across this single operator.'));
@@ -346,8 +377,8 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
       const field = node('label', label), select = node('select'); select.name = name; select.required = true;if(name==='zoneId')select.dataset.zonePicker='true'; for(const [value,text] of options) select.append(new Option(text,value)); field.append(select); spaceForm.insertBefore(field,spaceForm.querySelector('button'));
     } admin.append(spaceForm);
     const staffResult = node('div');staffResult.dataset.view='drivers';
-    const userForm = form('Find a user / vehicle', [['email','Exact registered email','driver@example.com']], async body => {
-      const found = await api(base+'/users?email='+encodeURIComponent(body.email));
+    const userForm = form('Find a user / vehicle', [['search','Driver name or email','Name or driver@example.com']], async body => {
+      const found = await api(base+'/users?'+(body.search.includes('@')?'email':'name')+'='+encodeURIComponent(body.search));
       if (stopped || ticket !== subscription) return;
       staffResult.replaceChildren(table(found.users as Row[],[['display_name','Name'],['email','Email'],['id','User ID'],['status','Status'],['normalized_registration','Vehicle']]));
       for(const user of found.users as Row[]) {
@@ -357,15 +388,18 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
         });}));
       }
     }); userForm.querySelector('button')!.textContent = 'Find user'; admin.append(userForm, staffResult);
-    const enroll=form('Approve a new staff account', [['email','New staff email (separate from driver accounts)','employee@example.com'],['reason','Reason','Employee onboarding']],async body=>{
+    const enroll=form('Add / approve an employee account', [['email','Employee email (separate from parking customers)','employee@example.com'],['reason','Reason','Employee onboarding']],async body=>{
       await mutate(base+'/staff-accounts','POST',body);await showStaff();
     });
     enroll.querySelector('button')!.textContent='Approve employee email';
-    enroll.append(node('p','Approve the employee email first. The employee then registers with that email, verifies it, signs in and enrolls an authenticator. Approval alone grants no location access.'));
+    enroll.append(node('p','Enter the employee email here even if they already registered. Accounts with vehicle or parking history cannot be enrolled as employees. Then find the employee below and assign a location role. Enrollment alone grants no location access.'));
     admin.append(enroll);
+    const employeeSearch=node('input');employeeSearch.setAttribute('aria-label','Staff name or email');employeeSearch.placeholder='Staff name or email';employeeSearch.maxLength=200;
+    const searchStaff=button('Find staff',()=>{employeeOffset=0;void showStaff().catch(fail);});
+    const staffSearchPanel=node('div');staffSearchPanel.dataset.view='people';staffSearchPanel.append(labeled('Staff name or email',employeeSearch),searchStaff);admin.append(staffSearchPanel);
     const list = node('div');list.dataset.view='people'; admin.append(list);let employeeOffset=0;
     async function showStaff(): Promise<void> {
-      const data = await api(base+'/staff-accounts?offset='+employeeOffset); if(stopped || ticket!==subscription)return;
+      const data = await api(base+'/staff-accounts?offset='+employeeOffset+'&search='+encodeURIComponent(employeeSearch.value)); if(stopped || ticket!==subscription)return;
       const rows=data.staffAccounts as Row[];
       list.replaceChildren(node('h3','Employee accounts and location roles'),table(rows,[['display_name','Name'],['email','Staff email'],['role','Assigned role']]));
       for(const employee of rows) {

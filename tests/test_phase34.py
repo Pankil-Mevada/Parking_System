@@ -125,11 +125,11 @@ class Phase34(unittest.TestCase):
         schema=('run_'+self.run_id.replace('-','')[:12]+'_'+self._testMethodName)[:63]
         self.db.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(schema)))
         self.db.execute(sql.SQL('SET search_path TO {},public').format(sql.Identifier(schema)))
-        for migration in ('001_initial.sql','002_identity.sql','003_delivery.sql','004_client_health.sql','005_staff_accounts.sql'):
+        for migration in ('001_initial.sql','002_identity.sql','003_delivery.sql','004_client_health.sql','005_staff_accounts.sql','006_account_approval.sql'):
             self.db.execute((ROOT/'database/migrations'/migration).read_text(encoding='utf-8'))
-        self.db.execute("CREATE TABLE schema_migrations(version text PRIMARY KEY); INSERT INTO schema_migrations VALUES('001'),('002'),('003'),('004'),('005')")
+        self.db.execute("CREATE TABLE schema_migrations(version text PRIMARY KEY); INSERT INTO schema_migrations VALUES('001'),('002'),('003'),('004'),('005'),('006')")
         for index,user in enumerate(self.identities):
-            self.db.execute('INSERT INTO users(id,identity_provider_reference,display_name,email) VALUES(%s,%s,%s,%s)',
+            self.db.execute("INSERT INTO users(id,identity_provider_reference,display_name,email,approval_status,registration_kind) VALUES(%s,%s,%s,%s,'approved','driver')",
                             (self.users[index],IDENTITY+'/realms/'+REALM+'|'+user['id'],'Synthetic Test',user['username']))
         self.db.execute(sql.SQL('ALTER ROLE parking_test SET search_path TO {},public').format(sql.Identifier(schema)))
         compose=['compose','--env-file','.env','--env-file',os.environ['PARKING_TEST_ENV_FILE'],
@@ -420,9 +420,10 @@ class Phase34(unittest.TestCase):
         self.assertIn(429,codes)
 
     def test_26_public_contract_stays_aggregate_only(self):
-        for path in ('/api/health','/api/ready','/api/auth/config','/api/locations'):
+        for path in ('/api/health','/api/ready','/api/auth/config'):
             self.assertEqual(api(None,path)[0],200)
-        body=api(None,'/api/locations')[1]
+        self.assertEqual(api(None,'/api/locations')[0],401)
+        body=api(self.driver,'/api/locations')[1]
         self.assertNotIn('registration',json.dumps(body))
         self.assertNotIn('email',json.dumps(body))
 
@@ -640,10 +641,13 @@ class Phase34(unittest.TestCase):
         code,me=api(access,'/api/me');self.assertEqual(code,200)
         self.assertEqual(me['accountType'],'staff');self.assertEqual(me['assignments'],[])
         self.assertEqual(api(access,f'/api/staff/locations/{self.location}/spaces')[0],403)
+        self.assertEqual(api(access,'/api/me/vehicle')[0],403)
+        self.db.execute("UPDATE users SET approval_status='approved' WHERE id=%s",(me['id'],))
         code,result=api(access,'/api/me/vehicle','PUT',{'registrationJurisdiction':'TEST','registration':'STAFFCAR','vehicleType':'car'})
         self.assertEqual((code,result['error']),(409,'staff_account_cannot_register_driver_vehicle'))
         self.assertEqual(api(self.admin,base+'/users?email='+email)[1]['users'],[])
         self.assertEqual(api(self.admin,base+'/staff','POST',{'userId':me['id'],'role':'attendant','reason':'Employee assigned'})[0],200)
+        self.db.execute("UPDATE users SET approval_status='approved' WHERE id=%s",(me['id'],))
         self.assertEqual(api(access,f'/api/staff/locations/{self.location}/spaces')[0],200)
         self.assertEqual(api(access,f'/api/staff/locations/{self.other_location}/spaces')[0],403)
         self.assertEqual(api(access,base+'/staff-accounts')[0],403)
@@ -683,6 +687,8 @@ class Phase34(unittest.TestCase):
         self.assertEqual(api(self.staff,base,'POST',dict(body,lastName='Changed'),key)[0],409)
         self.assertEqual(api(self.staff,base,'POST',body,str(uuid.uuid4()))[0],409)
         owner=created['userId'];path=base+'/'+owner+'/vehicle'
+        self.assertEqual(api(self.staff,path,'PUT',{'registrationJurisdiction':'TEST','registration':'PENDING','vehicleType':'car'})[0],409)
+        self.assertEqual(api(self.admin,f'/api/admin/locations/{self.location}/approvals','POST',{'userId':owner,'decision':'approved','reason':'Driver approved after staff creation'})[0],200)
         vehicle={'registrationJurisdiction':'TEST','registration':'NEWDRIVER','vehicleType':'car','color':'White'}
         self.assertEqual(api(self.driver,path,'PUT',vehicle)[0],403)
         self.assertEqual(api(self.staff,f'/api/staff/locations/{self.other_location}/drivers/{owner}/vehicle','PUT',vehicle)[0],403)
@@ -699,6 +705,7 @@ class Phase34(unittest.TestCase):
         applicant=create_user('staff-applicant-'+secrets.token_hex(6))
         access=login(applicant)['access_token'];me=api(access,'/api/me')[1]
         self.assertEqual(me['accountType'],'driver')
+        self.db.execute("UPDATE users SET approval_status='approved' WHERE id=%s",(me['id'],))
         self.assertEqual(api(access,'/api/me/staff-application','POST',{'locationId':self.location,'reason':'Employee application'})[0],200)
         self.assertEqual(api(access,'/api/me')[1]['accountType'],'staff')
         self.assertEqual(api(access,f'/api/staff/locations/{self.location}/spaces')[0],403)
@@ -719,6 +726,75 @@ class Phase34(unittest.TestCase):
         self.assertTrue(api(self.driver,'/api/me/parking-history')[1]['sessions'])
         self.assertEqual(api(self.driver,f'/api/staff/locations/{self.location}/spaces')[0],403)
         self.assertEqual(api(None,'/api/me')[0],401)
+
+    def test_49_registration_pending_browser(self):
+        from approval_browser import journey
+        journey(self)
+
+    def test_48_registration_approval_gate(self):
+        self.assertEqual(api(None,'/api/locations')[0],401)
+        for kind in ('driver','employee'):
+            user=create_user('approval-'+kind+'-'+secrets.token_hex(5))
+            access=login(user)['access_token'];profile=api(access,'/api/me')[1]
+            self.assertEqual(profile['approvalStatus'],'pending')
+            self.assertEqual(api(access,'/api/me/registration','POST',{'kind':kind})[0],200)
+            self.assertEqual(api(access,'/api/me/registration','POST',{'kind':'employee'})[0],409)
+            for path in ('/api/locations','/api/me/vehicle','/api/me/parking-history',f'/api/locations/{self.location}/events',f'/api/staff/locations/{self.location}/spaces'):
+                self.assertEqual(api(access,path)[0],403,path)
+            base=f'/api/admin/locations/{self.location}/approvals'
+            decision={'userId':profile['id'],'decision':'approved','role':'attendant','reason':'Verified registration'}
+            self.assertEqual(api(self.staff,base,'POST',decision)[0],403)
+            self.assertEqual(api(self.admin,f'/api/admin/locations/{self.other_location}/approvals','POST',decision)[0],403)
+            self.assertIn(profile['id'],[r['id'] for r in api(self.admin,base)[1]['requests']])
+            self.assertEqual(api(self.admin,base+'?offset=-1')[0],400)
+            import urllib.parse
+            email=user['email']
+            self.assertEqual([r['id'] for r in api(self.admin,base+'?search='+urllib.parse.quote(email))[1]['requests']],[profile['id']])
+            self.assertEqual(api(self.admin,base,'POST',decision)[0],200)
+            self.assertEqual(api(access,'/api/me')[1]['approvalStatus'],'approved')
+            self.assertEqual(api(access,'/api/locations')[0],200)
+            self.assertEqual(api(access,f'/api/staff/locations/{self.location}/spaces')[0],200 if kind=='employee' else 403)
+            self.assertEqual(api(self.admin,base,'POST',decision)[0],409)
+        rejected=create_user('approval-rejected-'+secrets.token_hex(5));access=login(rejected)['access_token'];profile=api(access,'/api/me')[1]
+        self.assertEqual(api(access,'/api/me/registration','POST',{'kind':'driver'})[0],200)
+        self.assertEqual(api(self.admin,base,'POST',{'userId':profile['id'],'decision':'rejected','reason':'Rejected request'})[0],200)
+        self.assertEqual(api(access,'/api/locations')[0],403)
+        self.assertEqual(api(access,'/api/me')[1]['approvalStatus'],'rejected')
+
+    def test_47_admin_enrolls_registered_employee_without_granting_access(self):
+        applicant=create_user('employee-enroll-'+secrets.token_hex(6))
+        access=login(applicant)['access_token'];me=api(access,'/api/me')[1]
+        base=f'/api/admin/locations/{self.location}'
+        email=self.db.execute('SELECT email FROM users WHERE id=%s',(me['id'],)).fetchone()[0]
+        body={'email':email,'reason':'Explicit employee enrollment'}
+        self.assertEqual(api(self.staff,base+'/staff-accounts','POST',body)[0],403)
+        self.assertEqual(api(self.admin,base+'/staff-accounts','POST',body)[0],200)
+        self.assertEqual(api(access,'/api/me')[1]['accountType'],'staff')
+        self.assertEqual(api(access,f'/api/staff/locations/{self.location}/spaces')[0],403)
+        driver_email=self.db.execute('SELECT email FROM users WHERE id=%s',(self.users[2],)).fetchone()[0]
+        self.assertEqual(api(self.admin,base+'/staff-accounts','POST',dict(body,email=driver_email))[0],409)
+        self.assertEqual(api(self.admin,base+'/staff','POST',{'userId':me['id'],'role':'attendant','reason':'Admin approved location role'})[0],200)
+        self.db.execute("UPDATE users SET approval_status='approved' WHERE id=%s",(me['id'],))
+        self.assertEqual(api(access,f'/api/staff/locations/{self.location}/spaces')[0],200)
+
+    def test_46_name_email_search_preserves_role_boundaries(self):
+        name=self.db.execute('SELECT display_name FROM users WHERE id=%s',(self.users[2],)).fetchone()[0]
+        base=f'/api/admin/locations/{self.location}'
+        import urllib.parse
+        query=urllib.parse.quote(name)
+        code,result=api(self.admin,base+'/users?name='+query)
+        self.assertEqual(code,200,result)
+        self.assertIn(self.users[2],[row['id'] for row in result['users']])
+        self.assertNotIn(self.users[0],[row['id'] for row in result['users']])
+        self.assertEqual(api(self.driver,base+'/users?name='+query)[0],403)
+        self.assertEqual(api(self.staff,f'/api/staff/locations/{self.other_location}/drivers?name='+query)[0],403)
+        self.assertEqual(api(self.admin,base+'/users?name=x')[0],400)
+        self.assertEqual(api(self.admin,base+'/users?name='+urllib.parse.quote("%' OR 1=1 --"))[1]['users'],[])
+        email=self.db.execute('SELECT email FROM users WHERE id=%s',(self.users[0],)).fetchone()[0]
+        code,result=api(self.admin,base+'/staff-accounts?search='+urllib.parse.quote(email))
+        self.assertEqual(code,200,result)
+        self.assertTrue(result['staffAccounts'])
+        self.assertTrue(all(row['email']==email for row in result['staffAccounts']))
 
     def test_45_driver_setup_email_failure_is_retryable_without_deletion(self):
         base=f'/api/staff/locations/{self.location}/drivers'

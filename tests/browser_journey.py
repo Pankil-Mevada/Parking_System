@@ -14,12 +14,13 @@ def journey(case):
     browser_driver=create_user('browser-driver-'+secrets.token_hex(6))
     browser_staff=create_user('browser-staff-'+secrets.token_hex(6))
     browser_admin=create_user('browser-admin-'+secrets.token_hex(6))
-    staff_id=case.db.execute('INSERT INTO users(identity_provider_reference,display_name,email) VALUES(%s,%s,%s) RETURNING id',(IDENTITY+'/realms/'+REALM+'|'+browser_staff['id'],'Browser Staff',browser_staff['username'])).fetchone()[0]
+    staff_id=case.db.execute("INSERT INTO users(identity_provider_reference,display_name,email,approval_status,registration_kind) VALUES(%s,%s,%s,'approved','employee') RETURNING id",(IDENTITY+'/realms/'+REALM+'|'+browser_staff['id'],'Browser Staff',browser_staff['username'])).fetchone()[0]
     case.db.execute('INSERT INTO staff_accounts(email,user_id,location_id,created_by) VALUES(%s,%s,%s,%s)',(browser_staff['username'],staff_id,case.location,staff_id))
     case.db.execute("INSERT INTO staff_assignments(user_id,location_id,role) VALUES(%s,%s,'attendant')",(staff_id,case.location))
-    admin_id=case.db.execute('INSERT INTO users(identity_provider_reference,display_name,email) VALUES(%s,%s,%s) RETURNING id',(IDENTITY+'/realms/'+REALM+'|'+browser_admin['id'],'Browser Admin',browser_admin['username'])).fetchone()[0]
+    admin_id=case.db.execute("INSERT INTO users(identity_provider_reference,display_name,email,approval_status,registration_kind) VALUES(%s,%s,%s,'approved','employee') RETURNING id",(IDENTITY+'/realms/'+REALM+'|'+browser_admin['id'],'Browser Admin',browser_admin['username'])).fetchone()[0]
     case.db.execute('INSERT INTO staff_accounts(email,user_id,location_id,created_by) VALUES(%s,%s,%s,%s)',(browser_admin['username'],admin_id,case.location,admin_id))
     case.db.execute("INSERT INTO staff_assignments(user_id,location_id,role) VALUES(%s,%s,'operator_admin')",(admin_id,case.location))
+    case.db.execute("INSERT INTO users(identity_provider_reference,display_name,email,approval_status,registration_kind) VALUES(%s,%s,%s,'approved','driver')",(IDENTITY+'/realms/'+REALM+'|'+browser_driver['id'],'Browser Driver',browser_driver['email']))
     os.environ['PLAYWRIGHT_BROWSERS_PATH']=str(ROOT/'.tools/browsers')
     from playwright.sync_api import sync_playwright, expect
     artifacts=ROOT/'.tools/browser-results'/case.run_id
@@ -31,7 +32,7 @@ def journey(case):
             staff=browser.new_context(viewport={'width':1280,'height':900})
             admin_context=browser.new_context(viewport={'width':1280,'height':900})
             disconnected={'driver':False}
-            def open_page(context,user,peer=False):
+            def open_page(context,user,peer=False,staff_signup=False):
                 page=context.new_page()
                 def forward(route):
                     # route.fetch is an out-of-browser proxy and does not inherit
@@ -49,8 +50,9 @@ def journey(case):
                         try:route.abort('failed')
                         except Exception:pass
                 page.route('**/api/**',forward)
-                page.goto('http://127.0.0.1:5173/')
-                page.locator('#account-login').click()
+                page.goto('http://127.0.0.1:5173/'+('#staff-signup' if staff_signup else ''))
+                expect(page.get_by_role('button',name='Sign in / register',exact=True)).to_have_count(1)
+                page.locator('#header-login').click()
                 page.locator('#username').fill(user['username'])
                 page.locator('#password').fill(user['password'])
                 page.locator('#kc-login').click()
@@ -61,6 +63,7 @@ def journey(case):
                 expect(page.locator('.parking-workspace')).to_be_visible()
                 return page
             d=open_page(driver,browser_driver)
+            expect(d.get_by_role('button',name='Request staff access (employees only)',exact=True)).to_have_count(0)
             expect(d.get_by_role('link',name='Staff accounts',exact=True)).to_have_count(0)
             d.get_by_role('link',name='My vehicle',exact=True).click()
             d.locator('#vehicle-open').click()
@@ -121,8 +124,12 @@ def journey(case):
                 create.locator('[name=email]').fill(email);create.locator('[name=firstName]').fill('Synthetic');create.locator('[name=lastName]').fill('New driver')
                 create.get_by_role('button',name='Create driver and send setup email',exact=True).click()
                 expect(s.locator('.staff-panel')).to_contain_text('Driver account created.',timeout=15000)
+                from test_phase34 import api
+                owner=case.db.execute('SELECT id FROM users WHERE email=%s',(email,)).fetchone()[0]
+                code,body=api(case.admin,f'/api/admin/locations/{case.location}/approvals','POST',{'userId':str(owner),'decision':'approved','reason':'Browser driver approved'})
+                case.assertEqual(code,200,body)
                 find=s.get_by_role('heading',name='Find a driver to register or manage a vehicle',exact=True).locator('..')
-                find.locator('[name=email]').fill(email);find.get_by_role('button',name='Find driver',exact=True).click()
+                find.locator('[name=search]').fill(email);find.get_by_role('button',name='Find driver',exact=True).click()
                 registration=s.get_by_role('heading',name='Register vehicle for this driver',exact=True).locator('..')
                 registration.locator('[name=registrationJurisdiction]').fill('TEST');registration.locator('[name=registration]').fill('ONBOARD987')
                 registration.get_by_role('button',name='Save driver vehicle',exact=True).click()
@@ -138,7 +145,12 @@ def journey(case):
                     links=setup.locator('a[href*="/login-actions/"]')
                     if links.count():links.first.click()
                     else:break
-                assert password_set,'Driver password-setup form was not reached'
+                if not password_set:
+                    # A verification redirect can still be rendering when count()
+                    # observes no form. Wait for the actual required-action input.
+                    setup.locator('[name=password-new]').wait_for(state='visible',timeout=15000)
+                    setup.locator('[name=password-new]').fill(password);setup.locator('[name=password-confirm]').fill(password)
+                    setup.locator('input[type=submit],button[type=submit]').first.click();password_set=True
                 provider=request(IDENTITY+'/admin/realms/'+REALM+'/users?email='+email+'&exact=true',token=admin_token())[0]
                 assert provider['emailVerified'],'Driver setup did not verify the email'
                 new_context=browser.new_context(viewport={'width':1280,'height':900})
@@ -180,41 +192,14 @@ def journey(case):
             a.get_by_role('link',name='Drivers',exact=True).click()
             expect(a.get_by_role('heading',name='Find a user / vehicle',exact=True)).to_be_visible()
             find_driver=a.get_by_role('heading',name='Find a user / vehicle',exact=True).locator('..')
-            find_driver.locator('[name=email]').fill(browser_driver['email'])
+            find_driver.locator('[name=search]').fill(browser_driver['email'])
             find_driver.get_by_role('button',name='Find user',exact=True).click()
             expect(a.locator('.admin-panel div[data-view=drivers]')).to_contain_text('BROWSER123')
             expect(a.locator('.admin-panel [data-view=drivers] select[name=role]')).to_have_count(0)
             a.get_by_role('link',name='Staff accounts',exact=True).click()
-            expect(a.get_by_role('heading',name='Approve a new staff account',exact=True)).to_be_visible()
+            expect(a.get_by_role('heading',name='Add / approve an employee account',exact=True)).to_be_visible()
             expect(a.get_by_role('heading',name='Find a user / vehicle',exact=True)).not_to_be_visible()
-            employee=create_user('browser-employee-'+secrets.token_hex(6))
-            employee_email=employee['email']
-            employee_context=browser.new_context(viewport={'width':1280,'height':900})
-            e=open_page(employee_context,employee)
-            e.get_by_role('link',name='My vehicle',exact=True).click()
-            e.get_by_role('button',name='Request staff access (employees only)',exact=True).click()
-            application=e.get_by_role('dialog',name='Request staff access',exact=True)
-            application.get_by_label('Work location',exact=True).select_option(case.location)
-            application.get_by_label('Reason / employee details',exact=True).fill('Synthetic staff application after registration')
-            application.get_by_role('button',name='Send staff access request',exact=True).click()
-            expect(application).to_contain_text('Staff request saved.')
-            application.get_by_role('button',name='Close',exact=True).click()
-            e.get_by_role('button',name='Refresh now',exact=True).click()
-            expect(e.locator('.workspace-status')).to_contain_text('ask your administrator to assign a location role')
-            expect(e.locator('#vehicle-open')).not_to_be_visible()
-            a.get_by_role('button',name='Refresh now',exact=True).click()
-            expect(a.get_by_role('heading',name='Location role for '+employee_email,exact=True)).to_be_visible(timeout=20000)
-            employee_role=a.get_by_role('heading',name='Location role for '+employee_email,exact=True).locator('..')
-            employee_role.locator('select[name=role]').select_option('attendant')
-            employee_role.locator('[name=reason]').fill('Synthetic employee location assignment')
-            with a.expect_response(lambda response: response.url.endswith('/staff') and response.request.method=='POST') as assigned:
-                employee_role.get_by_role('button',name='Save',exact=True).click()
-            assert assigned.value.status==200, 'Employee role was not confirmed by the server'
-            expect(a.get_by_role('heading',name='Employee accounts and location roles').locator('..')).to_contain_text('attendant')
-            e.get_by_role('button',name='Refresh now',exact=True).click()
-            expect(e.locator('.workspace-status')).to_contain_text('Connected',timeout=20000)
-            expect(e.get_by_role('link',name='My vehicle',exact=True)).to_have_count(0)
-            expect(e.get_by_role('link',name='Check in a vehicle',exact=True)).to_be_visible()
+            # Pending employee registration is covered by test_48 and test_49.
             a.get_by_role('link',name='Audit records',exact=True).click()
             expect(a.get_by_role('heading',name='Search audit records',exact=True)).to_be_visible()
             expect(a.get_by_role('heading',name='Find a user / vehicle',exact=True)).not_to_be_visible()

@@ -139,7 +139,12 @@
     },
     "/api/locations": {
       "get": {
-        "operationId": "publicAvailability",
+        "summary": "List locations for approved authenticated accounts only.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "responses": {
           "200": {
             "description": "Success",
@@ -151,19 +156,26 @@
                     "locations": {
                       "type": "array",
                       "items": {
-                        "$ref": "#/components/schemas/Location"
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "name"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        }
                       }
-                    },
-                    "timestamp": {
-                      "type": "string",
-                      "format": "date-time"
                     }
                   },
                   "required": [
-                    "locations",
-                    "timestamp"
-                  ],
-                  "additionalProperties": false
+                    "locations"
+                  ]
                 }
               }
             }
@@ -189,9 +201,7 @@
           "503": {
             "$ref": "#/components/responses/Error"
           }
-        },
-        "security": [],
-        "description": "Public aggregate-only snapshot, at most 100 locations. No owner or registration fields."
+        }
       }
     },
     "/api/auth/config": {
@@ -301,6 +311,17 @@
                     },
                     "staffMfaRequired": {
                       "type": "boolean"
+                    },
+                    "approvalStatus": {
+                      "type": "string",
+                      "enum": [
+                        "pending",
+                        "approved",
+                        "rejected"
+                      ]
+                    },
+                    "registrationKind": {
+                      "type": "string"
                     }
                   },
                   "required": [
@@ -2464,7 +2485,7 @@
     },
     "/api/admin/locations/{id}/users": {
       "get": {
-        "summary": "Find a driver by exact email; excludes employee accounts and grants no staff role.",
+        "summary": "Find drivers by exact email or name substring (minimum two characters); excludes employee accounts. Maximum 20 results.",
         "operationId": "get__api_admin_locations_id_users",
         "responses": {
           "200": {
@@ -2536,10 +2557,19 @@
           {
             "name": "email",
             "in": "query",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string",
               "maxLength": 200
+            }
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 100
             }
           }
         ]
@@ -2712,11 +2742,20 @@
               "minimum": 0,
               "maximum": 999999
             }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
           }
         ]
       },
       "post": {
-        "summary": "Approve an unused employee email before registration; never convert an existing driver.",
+        "summary": "Explicitly enroll an employee email, including an existing enabled account with no vehicle or parking history. Grants no location role.",
         "operationId": "approveStaffAccount",
         "responses": {
           "200": {
@@ -2872,7 +2911,7 @@
     },
     "/api/staff/locations/{id}/drivers": {
       "get": {
-        "summary": "Find exact driver email at an assigned location.",
+        "summary": "Find drivers by exact email or name substring (minimum two characters); excludes employee accounts. Maximum 20 results.",
         "operationId": "staffFindDriver",
         "responses": {
           "200": {
@@ -2944,10 +2983,19 @@
           {
             "name": "email",
             "in": "query",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string",
               "maxLength": 200
+            }
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 100
             }
           }
         ]
@@ -3165,6 +3213,267 @@
             }
           }
         ]
+      }
+    },
+    "/api/me/registration": {
+      "post": {
+        "summary": "Choose driver or employee once; new accounts remain pending until administrator approval.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "pending": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "pending"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "driver",
+                      "employee"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/locations/{id}/approvals": {
+      "get": {
+        "summary": "List up to 100 pending registrations for this single operator; location administrator only.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "requests": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  },
+                  "required": [
+                    "requests"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000,
+              "default": 0
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "description": "Case-insensitive name or email substring.",
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          }
+        ]
+      },
+      "post": {
+        "summary": "Approve or reject a pending account; employee approval assigns the explicit location role.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "decision": {
+                      "type": "string",
+                      "enum": [
+                        "approved",
+                        "rejected"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "decision"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "userId",
+                  "decision",
+                  "reason"
+                ],
+                "properties": {
+                  "userId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "decision": {
+                    "type": "string",
+                    "enum": [
+                      "approved",
+                      "rejected"
+                    ]
+                  },
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "attendant",
+                      "operator_admin"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     }
   },

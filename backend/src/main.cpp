@@ -16,7 +16,7 @@ int main() {
     }
     auto db = drogon::orm::DbClient::newPgClient(connection, 4);
     db->setTimeout(3.0);
-    registerAvailability(db);
+    // Availability is handled by the protected API.
     auto setting=[](const char *key) { auto value=parking::setting(key); if(value.empty()) throw std::runtime_error(std::string(key)+" is required"); return value; };
     try {
         parking::AuthConfig auth{setting("OIDC_INTERNAL_URL"),setting("OIDC_REALM"),setting("OIDC_ISSUER"),setting("OIDC_CLIENT_SECRET"),setting("APP_ORIGIN"),parking::setting("OIDC_DRIVER_ADMIN_SECRET")};
@@ -41,7 +41,7 @@ int main() {
     }, {drogon::Get});
     drogon::app().registerHandler("/api/ready", [db](const drogon::HttpRequestPtr &, std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
         auto reply = std::make_shared<std::function<void(const drogon::HttpResponsePtr &)>>(std::move(callback));
-        db->execSqlAsync("SELECT version FROM schema_migrations WHERE version='005'",
+        db->execSqlAsync("SELECT version FROM schema_migrations WHERE version='006'",
             [reply](const drogon::orm::Result &rows) {
                 Json::Value body; body["status"] = rows.empty() ? "not_ready" : "ready";
                 auto response = drogon::HttpResponse::newHttpJsonResponse(body);

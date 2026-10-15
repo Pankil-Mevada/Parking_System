@@ -11,10 +11,11 @@ void audit(Database &db, const Identity &actor, const std::string &action,
              {actor.user,action,type,target,requestId});
 }
 void lockUsers(Database &db, const Identity &actor, const std::string &owner, bool requireOwnerEnabled = true) {
-    auto users = db.query("SELECT id::text,status FROM users WHERE id IN ($1::uuid,$2::uuid) ORDER BY id FOR UPDATE", {actor.user,owner});
+    auto users = db.query("SELECT id::text,status,approval_status FROM users WHERE id IN ($1::uuid,$2::uuid) ORDER BY id FOR UPDATE", {actor.user,owner});
     for (int i=0; i<users.size(); ++i)
         if (users.get(i,"status") != "enabled" && (requireOwnerEnabled || users.get(i,"id")==actor.user)) throw ApiError(409,"account_disabled");
     if (!users.size()) throw ApiError(404,"user_not_found");
+    for(int i=0;i<users.size();++i)if(users.get(i,"id")==actor.user && users.get(i,"approval_status")!="approved")throw ApiError(403,"account_approval_pending");
 }
 Json::Value vehicleJson(const Rows &rows, int i) {
     Json::Value v;
@@ -54,6 +55,7 @@ Reply vehicle(Database &db, const Identity &actor, const drogon::HttpRequestPtr 
     db.begin(); lockUsers(db,actor,ownerId);
     if(!location.empty())authorizeLocation(db,actor,location);
     if(!db.query("SELECT 1 FROM users WHERE id=$1::uuid",{ownerId}).size())throw ApiError(404,"driver_not_found");
+    if(db.query("SELECT 1 FROM users WHERE id=$1::uuid AND approval_status='approved'",{ownerId}).size()==0)throw ApiError(409,"driver_approval_pending");
     if(!disable && db.query("SELECT 1 FROM staff_accounts WHERE user_id=$1::uuid",{ownerId}).size())throw ApiError(409,"staff_account_cannot_register_driver_vehicle");
     auto old = db.query("SELECT id::text FROM vehicles WHERE user_id=$1::uuid AND disabled_at IS NULL ORDER BY id FOR UPDATE",{ownerId});
     if (db.query("SELECT 1 FROM parking_sessions WHERE user_id=$1::uuid AND checked_out_at IS NULL",{ownerId}).size()) throw ApiError(409,"end_session_before_vehicle_change");
@@ -106,6 +108,7 @@ Reply parkingAction(Database &db, const Identity &actor, const drogon::HttpReque
     // Same lock order in check-in/out, replacement and maintenance: sorted users,
     // vehicle, space, active session; assignment stays shared-locked until commit.
     lockUsers(db,actor,owner,!checkout);
+    if(!checkout && !db.query("SELECT 1 FROM users WHERE id=$1::uuid AND approval_status='approved'",{owner}).size())throw ApiError(409,"driver_approval_pending");
     auto v=db.query("SELECT * FROM vehicles WHERE id=$1::uuid FOR UPDATE",{vehicleId});
     auto s=db.query("SELECT location_id::text,operational_status,supported_vehicle_type FROM spaces WHERE id=$1::uuid FOR UPDATE",{spaceId});
     if (!s.size()) throw ApiError(404,"space_not_found");
@@ -136,6 +139,40 @@ Reply parkingAction(Database &db, const Identity &actor, const drogon::HttpReque
 }
 Reply execute(Database &db, const Identity &actor, const drogon::HttpRequestPtr &req, const std::string &requestId) {
     auto path=req->path();
+    if(path=="/api/locations") {
+        Json::Value result;result["locations"]=Json::Value(Json::arrayValue);
+        auto rows=db.query("SELECT id::text,name FROM locations ORDER BY name,id LIMIT 100");
+        for(int i=0;i<rows.size();++i){Json::Value item;item["id"]=rows.get(i,"id");item["name"]=rows.get(i,"name");result["locations"].append(item);}
+        return {200,result};
+    }
+    std::smatch approvalMatch;
+    if(std::regex_match(path,approvalMatch,std::regex("/api/admin/locations/([^/]+)/approvals"))) {
+        auto location=approvalMatch[1].str();uuid(location);Json::Value result;
+        if(req->method()==drogon::Get) {
+            authorizeLocation(db,actor,location,true);result["requests"]=Json::Value(Json::arrayValue);
+            auto offset=req->getParameter("offset");if(offset.empty())offset="0";
+            auto search=req->getParameter("search");
+            if(offset.size()>6 || !std::all_of(offset.begin(),offset.end(),[](unsigned char c){return c>='0' && c<='9';}) || std::stoul(offset)>100000 || search.size()>200)throw ApiError(400,"invalid_approval_filter");
+            auto rows=db.query("SELECT id::text,display_name,email,registration_kind FROM users WHERE approval_status='pending' AND registration_kind IS NOT NULL AND ($2='' OR strpos(lower(email),lower($2))>0 OR strpos(lower(display_name),lower($2))>0) ORDER BY created_at,id LIMIT 100 OFFSET $1::integer",{offset,search});
+            for(int i=0;i<rows.size();++i){Json::Value item;for(auto key:{"id","display_name","email","registration_kind"})item[key]=rows.get(i,key);result["requests"].append(item);}
+            db.query("INSERT INTO audit_events(actor_id,action,target_type,target_id,request_id,sanitized_changes) VALUES($1::uuid,'approval_requests_read','location',$2::uuid,$3::uuid,'{}')",{actor.user,location,requestId});
+        } else {
+            auto body=parseJson(std::string(req->body()));fields(body,{"userId","decision","role","reason"});auto target=required(body,"userId",36);uuid(target);auto reason=required(body,"reason",500);auto decision=required(body,"decision",20);
+            if(decision!="approved" && decision!="rejected")throw ApiError(400,"invalid_decision");
+            db.begin();lockUsers(db,actor,target);authorizeLocation(db,actor,location,true);
+            auto row=db.query("SELECT registration_kind,approval_status,status FROM users WHERE id=$1::uuid",{target});
+            if(!row.size() || row.get(0,"approval_status")!="pending" || row.get(0,"registration_kind").empty() || row.get(0,"status")!="enabled")throw ApiError(409,"request_not_pending");
+            if(decision=="approved" && row.get(0,"registration_kind")=="employee") {
+                auto role=required(body,"role",30);if(role!="attendant" && role!="operator_admin")throw ApiError(400,"invalid_role");
+                if(db.query("SELECT 1 FROM vehicles WHERE user_id=$1::uuid UNION ALL SELECT 1 FROM parking_sessions WHERE user_id=$1::uuid LIMIT 1",{target}).size())throw ApiError(409,"driver_history_requires_separate_employee_account");
+                db.query("INSERT INTO staff_accounts(email,user_id,location_id,created_by) SELECT lower(btrim(email)),id,$2::uuid,$3::uuid FROM users WHERE id=$1::uuid ON CONFLICT(user_id) DO NOTHING",{target,location,actor.user});
+                db.query("INSERT INTO staff_assignments(user_id,location_id,role) VALUES($1::uuid,$2::uuid,$3) ON CONFLICT(user_id,location_id) DO UPDATE SET role=excluded.role",{target,location,role});
+            }
+            db.query("UPDATE users SET approval_status=$2 WHERE id=$1::uuid",{target,decision});
+            db.query("INSERT INTO audit_events(actor_id,action,target_type,target_id,request_id,sanitized_changes) VALUES($1::uuid,'account_approval_decided','user',$2::uuid,$3::uuid,$4::jsonb)",{actor.user,target,requestId,jsonString(body)});db.commit();result["decision"]=decision;
+        }
+        return {200,result};
+    }
     if (path=="/api/me/vehicle") return vehicle(db,actor,req,requestId);
     if (path=="/api/staff/check-ins") return parkingAction(db,actor,req,requestId,false,"");
     std::smatch match;
@@ -147,9 +184,21 @@ Reply execute(Database &db, const Identity &actor, const drogon::HttpRequestPtr 
     if (path=="/api/me") {
         response["id"]=actor.user; response["mfa"]=actor.mfa; response["assignments"]=Json::Value(Json::arrayValue);
         response["staffMfaRequired"]=staffMfaRequired();
+        auto profile=db.query("SELECT approval_status,registration_kind FROM users WHERE id=$1::uuid",{actor.user});
+        response["approvalStatus"]=profile.get(0,"approval_status");response["registrationKind"]=profile.get(0,"registration_kind");
         response["accountType"]=db.query("SELECT 1 FROM staff_accounts WHERE user_id=$1::uuid",{actor.user}).size()?"staff":"driver";
         auto rows=db.query("SELECT location_id::text,role FROM staff_assignments WHERE user_id=$1::uuid ORDER BY location_id",{actor.user});
         for(int i=0;i<rows.size();++i) { Json::Value item; item["locationId"]=rows.get(i,"location_id"); item["role"]=rows.get(i,"role"); response["assignments"].append(item); }
+    } else if(path=="/api/me/registration") {
+        auto body=parseJson(std::string(req->body()));fields(body,{"kind"});auto kind=required(body,"kind",20);
+        if(kind!="driver" && kind!="employee")throw ApiError(400,"invalid_account_kind");
+        db.begin();
+        auto row=db.query("SELECT registration_kind,approval_status FROM users WHERE id=$1::uuid FOR UPDATE",{actor.user});
+        if(row.get(0,"approval_status")!="pending" || !row.get(0,"registration_kind").empty())throw ApiError(409,"registration_already_submitted");
+        db.query("UPDATE users SET registration_kind=$2 WHERE id=$1::uuid",{actor.user,kind});
+        Json::Value change;change["kind"]=kind;
+        db.query("INSERT INTO audit_events(actor_id,action,target_type,target_id,request_id,sanitized_changes) VALUES($1::uuid,'registration_submitted','user',$1::uuid,$2::uuid,$3::jsonb)",{actor.user,requestId,jsonString(change)});
+        db.commit();response["pending"]=true;
     } else if(path=="/api/me/staff-application") {
         auto body=parseJson(std::string(req->body()));fields(body,{"locationId","reason"});
         auto location=required(body,"locationId",36);uuid(location);auto reason=required(body,"reason",500);

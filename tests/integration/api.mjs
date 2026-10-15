@@ -22,19 +22,8 @@ test('health and migrated database readiness', async () => {
   assert.deepEqual(await get('/api/health'), { status: 'ok' });
   assert.deepEqual(await get('/api/ready'), { status: 'ready' });
 });
-test('availability conforms to public contract and capacity invariants', async () => {
-  const body = await get('/api/locations');
-  assert.deepEqual(Object.keys(body).sort(), ['locations', 'timestamp']);
-  assert.ok(Number.isFinite(Date.parse(body.timestamp)));
-  assert.ok(Array.isArray(body.locations));
-  assert.ok(body.locations.length <= 100);
-  for (const location of body.locations) {
-    assert.deepEqual(Object.keys(location).sort(), ['available', 'capacity', 'id', 'name', 'occupied', 'outOfService']);
-    assert.match(location.id, /^[0-9a-f-]{36}$/i);
-    assert.equal(typeof location.name, 'string');
-    for (const key of ['available', 'capacity', 'occupied', 'outOfService']) {
-      assert.ok(Number.isInteger(location[key]) && location[key] >= 0);
-    }
-    assert.equal(location.available + location.occupied, location.capacity);
-  }
+test('parking locations require authentication', async () => {
+  const response = await fetch(base + '/api/locations');
+  assert.equal(response.status, 401);
+  assert.deepEqual(await response.json(), {error:'authentication_required'});
 });

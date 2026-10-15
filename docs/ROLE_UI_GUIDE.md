@@ -1,6 +1,6 @@
 # Driver, staff and administrator — manual testing
 
-Verified 2026-10-15: 44 strict-baseline checks passed (1 password-only check reserved
+Historical baseline before mandatory account approval: 44 strict-baseline checks passed (1 password-only check reserved
 for separate execution); all 7 password-only checks passed, including real Chromium
 driver setup email/password, staff signup/approval, vehicle registration and parking.
 Latest password-only retained run: `b5a4ba1a-5fc8-4d10-846b-8543d29d9ef9`.
@@ -8,6 +8,9 @@ Latest password-only retained run: `b5a4ba1a-5fc8-4d10-846b-8543d29d9ef9`.
 Current local login uses **email and password only**. Microsoft Authenticator and
 other OTP apps are not required. Email verification remains enabled; messages
 arrive in local Mailpit at http://127.0.0.1:8025, not a real inbox.
+The header contains the single **Sign in / register** button. The account/vehicle
+section does not duplicate it. Staff registration remains a separate employee
+onboarding action requiring administrator approval.
 
 ## Start and sign in
 
@@ -20,25 +23,26 @@ Keep the startup terminal open and visit http://127.0.0.1:5173. Sign out and bac
 in if you still have an old login screen open. Existing accounts/passwords remain.
 Use separate browser profiles/sessions to test different roles simultaneously.
 
-## Staff registration and administrator approval
+## Register and approve all account types
 
-1. On the signed-out page, choose **Register as staff (admin approval required)**.
-2. Register a separate employee email/name/password and verify email through Mailpit
-   in the same browser session. Sign into the parking app.
-3. Submit **Request staff access** with a work location and reason. If you registered
-   normally, open **My vehicle** and choose **Request staff access (employees only)**.
-   No vehicle should be registered under an employee identity.
-4. An administrator opens **Staff accounts**, selects the requested location and
-   clicks **Refresh now**. The employee appears with no location role.
-5. Under **Location role for [employee email]**, select **Attendant — check-in /
-   check-out**, enter a reason, and save. Only employee accounts appear here.
-6. The employee clicks **Refresh now**, or signs out and back in. Their Staff
-   workspace becomes available. No authenticator enrollment is needed locally.
+1. Signed-out visitors see only the product introduction. Select **Create account**.
+2. Choose **Driver / user** or **Employee**, then complete registration and Mailpit
+   email verification. Public registration cannot choose an administrator role.
+3. Both types see **Your approval is pending** and no parking data or controls.
+   Direct provider registration asks for account type on first return to the app.
+4. Administrator: open **Account approvals**, review name/email/type, choose Approve
+   or Reject, enter a reason, and save. For employees, select Attendant or Operator
+   administrator for the selected location. Never grant admin privileges routinely.
+5. Applicant clicks **Check approval status** or signs in again. Approved drivers
+   get their vehicle/session pages; employees get only assigned location controls.
+6. Administrator setup requires no approval: run
+   `py scripts/grant_local_admin.py --email admin@gmail.com --create`, open the
+   Mailpit setup email, verify email and choose a private password. Then sign in
+   directly as administrator. Do not register the owner as a pending employee.
+   Other accounts still need UI approval.
 
-Registration or a request grants no staff access by itself. Driver accounts with
-vehicle/parking history cannot switch to employees; use a separate employee email.
-The older **Approve a new staff account** flow also remains available for approving
-an unused employee email before registration. Existing assigned staff/admins remain.
+Employee selection grants no privileges. Existing vehicle/session history cannot
+be converted into an employee identity. No personal vehicle under employee accounts.
 
 ## Staff: create a driver and register their vehicle
 
@@ -48,7 +52,8 @@ an unused employee email before registration. Existing assigned staff/admins rem
    driver's password. If email fails, the account is retained; retry the same form.
 4. The driver opens their setup email in Mailpit, verifies email and chooses their
    own password. Use a separate browser session from staff/admin.
-5. Under **Find a driver to register or manage a vehicle**, enter the driver's exact
+5. The administrator first approves this new driver in **Account approvals**.
+   Under **Find a driver to register or manage a vehicle**, enter the driver's name or exact
    email and click **Find driver**.
 6. Complete **Register vehicle for this driver**, for example jurisdiction `IN-GJ`,
    registration `GJ08AB1234`, vehicle type Car, make Maruti, model Swift, color White.

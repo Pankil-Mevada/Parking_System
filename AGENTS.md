@@ -43,6 +43,15 @@ claim that the application is implemented or ready for production.
 - Prefer a modular application before introducing microservices.
 
 ## Roles and access
+- Owner-approved onboarding: registration requires Driver/user or Employee selection.
+  Both start pending administrator approval. Pending/rejected accounts may access
+  only their approval status, one-time type submission, and logout; no parking
+  details or operations. Employee choice never self-grants permissions. Admin
+  explicitly approves and assigns employees to a location. Signed-out UI is a
+  product introduction only, with no location/occupancy details.
+- Owner clarification: administrator accounts are provisioned through trusted local
+  owner setup and need no approval by another admin. They sign in directly after
+  email/password setup. Public Driver/Employee selection cannot create an admin.
 - Owner update (2026-10-15): driver and employee accounts are separate. Public
   registration creates a driver unless the administrator approved a separate
   employee email before the first parking-app login. Driver search must never
@@ -73,6 +82,8 @@ claim that the application is implemented or ready for production.
   never receive owner names, contact details, or full registration numbers.
 
 ## Website requirements
+- Product expectation: use one global Sign in/register entry point in the header;
+  do not duplicate sign-in buttons in account or vehicle sections.
 - Login, password reset/account recovery, and authenticated navigation.
 - Driver dashboard: registered vehicle, location selector, available space count,
   current space, arrival time, elapsed duration, and session history.

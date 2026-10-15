@@ -160,18 +160,26 @@ Reply dashboard(Database &db,const Identity &actor,const drogon::HttpRequestPtr 
         if(!std::regex_match(email,std::regex("[^\\s@]+@[^\\s@]+\\.[^\\s@]+")))throw ApiError(400,"invalid_email");
         db.commit();db.begin();
         db.query("SELECT pg_advisory_xact_lock(hashtextextended(lower(btrim($1)),518))",{email});
+        auto employee=db.query("SELECT id::text,status FROM users WHERE lower(btrim(email))=lower(btrim($1)) FOR UPDATE",{email});
         lockActor(db,actor);authorizeLocation(db,actor,location,true);
-        if(db.query("SELECT 1 FROM users WHERE lower(btrim(email))=lower(btrim($1))",{email}).size())throw ApiError(409,"existing_account_use_separate_staff_email");
-        db.query("INSERT INTO staff_accounts(email,location_id,created_by) VALUES(lower(btrim($1)),$2::uuid,$3::uuid)",{email,location,actor.user});
+        if(employee.size()) {
+            auto id=employee.get(0,"id");
+            if(employee.get(0,"status")!="enabled")throw ApiError(409,"employee_account_disabled");
+            if(db.query("SELECT 1 FROM vehicles WHERE user_id=$1::uuid UNION ALL SELECT 1 FROM parking_sessions WHERE user_id=$1::uuid LIMIT 1",{id}).size())throw ApiError(409,"driver_history_requires_separate_employee_account");
+            db.query("INSERT INTO staff_accounts(email,user_id,location_id,created_by) VALUES(lower(btrim($1)),$2::uuid,$3::uuid,$4::uuid)",{email,id,location,actor.user});
+        } else {
+            db.query("INSERT INTO staff_accounts(email,location_id,created_by) VALUES(lower(btrim($1)),$2::uuid,$3::uuid)",{email,location,actor.user});
+        }
         record(db,actor,"staff_account_approved","location",location,requestId,body);result["approved"]=true;
     } else if(admin && operation=="staff-accounts" && req->method()==drogon::Get) {
-        result["staffAccounts"]=objects(db.query("SELECT c.email,c.user_id::text,u.display_name,u.status,a.role FROM staff_accounts c LEFT JOIN users u ON u.id=c.user_id LEFT JOIN staff_assignments a ON a.user_id=c.user_id AND a.location_id=$1::uuid WHERE c.location_id=$1::uuid OR a.user_id IS NOT NULL ORDER BY c.email LIMIT 100 OFFSET $2::integer",{location,boundedNumber(req->getParameter("offset"),"invalid_offset")}),{"email","user_id","display_name","status","role"});
+        auto search=req->getParameter("search"); if(search.size()>200)throw ApiError(400,"invalid_search");
+        result["staffAccounts"]=objects(db.query("SELECT c.email,c.user_id::text,u.display_name,u.status,a.role FROM staff_accounts c LEFT JOIN users u ON u.id=c.user_id LEFT JOIN staff_assignments a ON a.user_id=c.user_id AND a.location_id=$1::uuid WHERE (c.location_id=$1::uuid OR a.user_id IS NOT NULL) AND ($3='' OR strpos(lower(c.email),lower($3))>0 OR strpos(lower(coalesce(u.display_name,'')),lower($3))>0) ORDER BY c.email LIMIT 100 OFFSET $2::integer",{location,boundedNumber(req->getParameter("offset"),"invalid_offset"),search}),{"email","user_id","display_name","status","role"});
         record(db,actor,"staff_accounts_read","location",location,requestId);
     } else if(admin && operation=="staff-list" && req->method()==drogon::Get) {
         result["staff"]=objects(db.query("SELECT u.id::text,u.display_name,u.email,a.role FROM staff_assignments a JOIN users u ON u.id=a.user_id WHERE a.location_id=$1::uuid ORDER BY u.id LIMIT 100 OFFSET $2::integer",{location,boundedNumber(req->getParameter("offset"),"invalid_offset")}),{"id","display_name","email","role"}); record(db,actor,"staff_list_read","location",location,requestId);
     } else if(((admin && operation=="users") || (staff && operation=="drivers")) && req->method()==drogon::Get) {
-        auto email=req->getParameter("email"); if(email.empty() || email.size()>200) throw ApiError(400,"exact_email_required");
-        result["users"]=objects(db.query("SELECT u.id::text,u.display_name,u.email,u.status,v.id::text AS vehicle_id,v.normalized_registration,v.registration_jurisdiction FROM users u LEFT JOIN vehicles v ON v.user_id=u.id AND v.disabled_at IS NULL WHERE lower(u.email)=lower($1) AND NOT EXISTS(SELECT 1 FROM staff_accounts c WHERE c.user_id=u.id) ORDER BY u.id LIMIT 10",{email}),{"id","display_name","email","status","vehicle_id","normalized_registration","registration_jurisdiction"});
+        auto email=req->getParameter("email"); auto name=req->getParameter("name"); if((email.empty() && name.size()<2) || email.size()>200 || name.size()>100) throw ApiError(400,"email_or_name_required");
+        result["users"]=objects(db.query("SELECT u.id::text,u.display_name,u.email,u.status,v.id::text AS vehicle_id,v.normalized_registration,v.registration_jurisdiction FROM users u LEFT JOIN vehicles v ON v.user_id=u.id AND v.disabled_at IS NULL WHERE (($1<>'' AND lower(u.email)=lower($1)) OR ($2<>'' AND strpos(lower(u.display_name),lower($2))>0)) AND NOT EXISTS(SELECT 1 FROM staff_accounts c WHERE c.user_id=u.id) ORDER BY u.id LIMIT 20",{email,name}),{"id","display_name","email","status","vehicle_id","normalized_registration","registration_jurisdiction"});
         record(db,actor,"user_lookup","location",location,requestId);
     } else if(admin && operation=="users" && req->method()==drogon::Put) {
         // Account changes apply across this single operator. Do not use for multi-tenant deployment.
