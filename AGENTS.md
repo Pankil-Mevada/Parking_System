@@ -15,8 +15,22 @@ claim that the application is implemented or ready for production.
   updates do not prove physical occupancy without staff or hardware input.
 - Start with one operator and multiple parking locations. If selling to separate
   operators, implement and test tenant isolation before onboarding them.
-- Payments, reservations, ANPR cameras, sensors, barrier gates, and guest vehicles
-  are future scope; do not silently implement them or imply they exist.
+- Payments, reservations, and guest vehicles remain future scope.
+- Owner-approved phase 8 covers ANPR cameras, RFID readers/tags, occupancy sensors,
+  and barrier gates after phases 5–7. This is planned scope, not implemented hardware.
+
+## Owner update: local test data and email
+- Retain development/test databases, committed test records and test identity realms
+  until the owner or an authorized administrator explicitly requests deletion.
+- Do not automatically truncate prior test cases, drop their schemas/databases,
+  remove identity realms, or prune database volumes as test cleanup. Use persistent,
+  isolated case schemas. Intentional transaction rollback and tested business
+  operations such as checkout or assignment revocation remain valid.
+- Synthetic automated-test emails must stay in local Mailpit, even when normal
+  user verification/recovery uses real SMTP. SMTP credentials must be entered
+  privately and never committed or pasted into chat.
+- Owner choice on 2026-10-15: use local Mailpit for normal verification/recovery
+  for now, including real recipient addresses. Real SMTP is optional future setup.
 
 ## Architecture
 - For a new implementation, proposed baseline: TypeScript web frontend and API,
@@ -207,6 +221,11 @@ ON parking_sessions(space_id) WHERE checked_out_at IS NULL;
 5. Build driver/staff/admin pages with real API data and accessible states.
 6. Implement durable realtime delivery and reconnect/privacy tests.
 7. Add deployment, observability, security verification, and pilot runbook.
+8. Integrate ANPR cameras, RFID readers/tags, occupancy sensors, and barrier gates.
+   Select devices and review their protocols before implementation. Define failed
+   reads, unauthorized entry, manual overrides, device outages, and physical
+   occupancy reconciliation. Preserve authorization, idempotency, transaction
+   invariants and audit trails; test duplicate and out-of-order device events.
 - Deliver each phase as working code with meaningful tests. Clearly label mocks.
 - Keep changes and tool output focused; search before reading large files.
 - Read supporting documents only when needed and keep final summaries concise.

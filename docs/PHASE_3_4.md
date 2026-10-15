@@ -1,5 +1,10 @@
 # Phases 3 and 4: identity and transactional parking
 
+**Updated owner policy:** [retain test databases/records and inspect them](DATABASE_AND_EMAIL.md).
+The runner now keeps per-case schemas and unique provider realms. Earlier disposable
+cleanup/timing descriptions below document the prior implementation, not current behavior.
+Real SMTP setup is pending the owner's privately entered Gmail app password.
+
 This is the current implementation reference. The other architecture/design
 documents describe the earlier phase 1–2 checkpoint where labeled as historical.
 The project remains independent from FoodService, with one operator and multiple

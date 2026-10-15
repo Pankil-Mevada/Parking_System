@@ -1,11 +1,21 @@
 # VehicleParkingSystem
 
-**Current: phases 3–4 add Keycloak authentication/MFA, scoped roles, real vehicle
-registration and transactional staff parking APIs with idempotency.** Follow
-[phase 3–4 setup, architecture and test instructions](docs/PHASE_3_4.md) first.
+Current data/email policy: [database viewer, retained tests and real SMTP setup](docs/DATABASE_AND_EMAIL.md).
+Use `py scripts/view_database.py --start` to inspect records at http://127.0.0.1:8090.
+Tests now retain case schemas and identity realms; the earlier disposable-cleanup
+descriptions below are historical and superseded by the linked policy.
+
+**Start/resume here:** [RESUME.md](RESUME.md) records completed phases, remaining
+work and verified tests.
+
+**Current: phase 5–6 dashboards and durable updates.** See
+[current setup, UI walkthrough, architecture, sequences and tests](docs/PHASE_5_6.md).
+Authentication/MFA, scoped roles and transactional parking remain documented in
+[phases 3–4](docs/PHASE_3_4.md).
 The phase 1–2 setup and verification history below is retained for context; the
-database now needs migration 002 and the identity services. Full role dashboards
-and realtime delivery remain later phases.
+database now needs migrations through 003 and the identity services. Driver,
+staff/admin dashboards and PostgreSQL-backed finite SSE batches are implemented.
+Phase 7 launch verification and phase 8 hardware integration remain.
 
 After the phase 3–4 setup in that guide, use Python commands:
 
@@ -13,6 +23,7 @@ After the phase 3–4 setup in that guide, use Python commands:
 py scripts/start_dev.py
 # Keep startup running; use a second terminal for checks:
 py -m pip install --target .tools/test-python -r requirements-test.txt
+py scripts/setup_browser_tests.py
 py scripts/test_phase34.py
 py scripts/test_system.py
 ```

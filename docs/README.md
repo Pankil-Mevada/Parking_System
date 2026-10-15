@@ -1,5 +1,13 @@
 # Engineering documentation
 
+- [Current phases 5–6](PHASE_5_6.md): floor/space dashboards, administration, durable
+  outbox relay, SSE replay, architecture, sequences, exact commands and testing.
+
+- [Database inspection, retained tests and real email](DATABASE_AND_EMAIL.md): current
+  owner retention policy, read-only viewer and private Gmail SMTP setup.
+
+For the current handoff and next task, read [RESUME.md](../RESUME.md).
+
 This is the independent VehicleParkingSystem repository. Documentation describes
 the source at this checkpoint, not a claim of commercial readiness.
 

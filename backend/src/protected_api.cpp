@@ -23,6 +23,14 @@ void registerProtectedApi(const std::string &databaseUrl, const AuthConfig &conf
               catch(const SqlError &e) { result.status=e.state=="23505" ? 409 : (e.state=="23514" || e.state=="22P02" ? 400 : 503); result.body["error"]=result.status==409?"parking_or_registration_conflict":(result.status==400?"invalid_request":"transaction_failed"); }
               catch(const std::exception &) { result.status=500; result.body["error"]="internal_error"; }
             auto response=drogon::HttpResponse::newHttpJsonResponse(result.body);
+            if(request->path().size()>=7 && request->path().substr(request->path().size()-7)=="/events" && result.status==200) {
+                // Bounded SSE response, then reconnect. Authorization is checked on
+                // every batch, rather than retaining an indefinitely privileged stream.
+                response=drogon::HttpResponse::newHttpResponse();
+                response->setContentTypeString("text/event-stream");
+                response->setBody("retry: 1000\nevent: changes\nid: "+result.body["cursor"].asString()+"\ndata: "+jsonString(result.body)+"\n\n");
+                response->addHeader("X-Accel-Buffering","no");
+            }
             response->setStatusCode(static_cast<drogon::HttpStatusCode>(result.status));
             response->addHeader("Cache-Control","no-store"); response->addHeader("X-Request-ID",requestId);
             response->addHeader("X-Content-Type-Options","nosniff");
@@ -39,5 +47,12 @@ void registerProtectedApi(const std::string &databaseUrl, const AuthConfig &conf
     drogon::app().registerHandlerViaRegex("/api/staff/locations/[^/]+/spaces",decltype(handler)(handler),{drogon::Get});
     drogon::app().registerHandlerViaRegex("/api/admin/spaces/[^/]+/status",decltype(handler)(handler),{drogon::Put});
     drogon::app().registerHandlerViaRegex("/api/admin/locations/[^/]+/staff",decltype(handler)(handler),{drogon::Post});
+    drogon::app().registerHandler("/api/me/dashboard",decltype(handler)(handler),{drogon::Get});
+    drogon::app().registerHandler("/api/admin/locations",decltype(handler)(handler),{drogon::Post});
+    drogon::app().registerHandlerViaRegex("/api/locations/[^/]+/(dashboard|events)",decltype(handler)(handler),{drogon::Get});
+    drogon::app().registerHandlerViaRegex("/api/staff/locations/[^/]+/(dashboard|events|vehicles)",decltype(handler)(handler),{drogon::Get});
+    drogon::app().registerHandlerViaRegex("/api/admin/locations/[^/]+/(configuration|users)",decltype(handler)(handler),{drogon::Get,drogon::Put});
+    drogon::app().registerHandlerViaRegex("/api/admin/locations/[^/]+/(audit|staff-list)",decltype(handler)(handler),{drogon::Get});
+    drogon::app().registerHandlerViaRegex("/api/admin/locations/[^/]+/(zones|spaces)",decltype(handler)(handler),{drogon::Post,drogon::Put});
 }
 }

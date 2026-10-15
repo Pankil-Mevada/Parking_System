@@ -1,5 +1,16 @@
 # Current authentication and parking tests
 
+**Phases 5–6:** [dashboard and realtime test guide](docs/PHASE_5_6.md).
+Keep the frontend running on port 5173, run `py scripts/setup_browser_tests.py`
+once, then `py scripts/test_phase34.py` for the complete phases 3–6 integration
+suite, including Chromium driver/staff/admin flows and two API instances.
+Run the retained-tools safety suite after that finishes, not concurrently:
+`py -m unittest discover -s tests -p test_retained_tools.py -v`.
+
+**Updated:** tests retain each case's database records and provider realms. Open
+the [database/email guide](docs/DATABASE_AND_EMAIL.md) for the read-only viewer and
+new retention behavior. Earlier temporary/deleted-fixture descriptions are historical.
+
 For phases 3–4, use [the current setup and test guide](docs/PHASE_3_4.md).
 After installing its test prerequisites, run `py scripts/test_phase34.py`.
 It tests real provider login/MFA, separate PostgreSQL connections, competing parking

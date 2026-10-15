@@ -47,7 +47,11 @@ services:
     depends_on: [identity]
   mail:
     image: axllent/mailpit:v1.27.8@sha256:6abc8e633df15eaf785cfcf38bae48e66f64beecdc03121e249d0f9ec15f0707
+    environment:
+      MP_DATABASE: /data/mailpit.db
+    volumes: ["mail_data:/data"]
     ports: ["127.0.0.1:8025:8025"]
 volumes:
   parking_data:
   identity_data:
+  mail_data:

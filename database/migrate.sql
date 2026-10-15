@@ -15,4 +15,9 @@ SELECT NOT EXISTS (SELECT 1 FROM schema_migrations WHERE version='002') AS apply
 \ir migrations/002_identity.sql
 INSERT INTO schema_migrations(version) VALUES ('002');
 \endif
+SELECT NOT EXISTS (SELECT 1 FROM schema_migrations WHERE version='003') AS apply_003 \gset
+\if :apply_003
+\ir migrations/003_delivery.sql
+INSERT INTO schema_migrations(version) VALUES ('003');
+\endif
 COMMIT;

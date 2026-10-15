@@ -11,9 +11,10 @@ import time
 import urllib.parse
 import urllib.request
 import urllib.error
+import os
 from identity_admin import IDENTITY, admin_token, request
 
-REALM = 'parking-tests'
+REALM = os.environ.get('PARKING_TEST_REALM', 'parking-tests')
 
 
 class Form(HTMLParser):
@@ -140,7 +141,7 @@ def recovery(user):
         def return_ok_secure(self, cookie, req):
             return req.full_url.startswith(IDENTITY + '/') or super().return_ok_secure(cookie, req)
     browser = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar(Policy())))
-    url = IDENTITY + '/realms/parking-tests/protocol/openid-connect/auth?' + urllib.parse.urlencode({
+    url = IDENTITY + '/realms/' + REALM + '/protocol/openid-connect/auth?' + urllib.parse.urlencode({
         'client_id':'parking-web','response_type':'code','scope':'openid email profile',
         'redirect_uri':'http://127.0.0.1:5173/','state':secrets.token_urlsafe(24),
         'code_challenge':secrets.token_urlsafe(32),'code_challenge_method':'S256'})

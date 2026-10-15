@@ -1,5 +1,11 @@
 # Phase 3–4 additions
 
+Current phases 5–6 retain the runtime stack below. New testing dependencies are
+Playwright 1.63.0, pyee 13.0.1, greenlet 3.5.6 and typing_extensions 4.16.0, pinned
+in `requirements-browser.txt`. Chromium is installed in ignored `.tools/browsers`.
+No runtime broker or UI framework was added: PostgreSQL holds durable delivery;
+native browser dialogs and TypeScript provide the UI. See `docs/PHASE_5_6.md`.
+
 - Keycloak 26.8.1: maintained external authentication provider for email verification,
   recovery, OTP and sessions; local container pinned by digest in Compose.
 - keycloak-js 26.2.4: official browser adapter; authorization code with PKCE and

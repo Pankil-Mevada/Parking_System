@@ -125,3 +125,7 @@ function preview(occupied: boolean): void {
 arrival.addEventListener('click', () => preview(true));
 departure.addEventListener('click', () => preview(false));
 void load();
+window.addEventListener('parking-updated', () => {void load();});
+// Anonymous visitors receive aggregate snapshots only; authenticated floor views
+// use the replayable SSE endpoint. Keep a bounded aggregate fallback for visitors.
+setInterval(() => {if (!document.hidden) void load();}, 15000);

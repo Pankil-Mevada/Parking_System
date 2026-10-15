@@ -6,7 +6,7 @@
 <aside class="sidebar" aria-label="Main navigation">
   <a class="brand" href="#overview" aria-label="Vehicle Parking System overview"><span class="brand-mark" aria-hidden="true">P<span></span></span><span>PARKING<small>SPACE MANAGEMENT</small></span></a>
   <p class="nav-caption">WORKSPACE</p>
-  <nav><a class="nav-item active" href="#overview"><span aria-hidden="true">▦</span> Overview</a><a class="nav-item" href="#location-section"><span aria-hidden="true">⌖</span> Locations</a><a class="nav-item" href="#preview-section"><span aria-hidden="true">◇</span> Interactive preview</a></nav>
+  <nav><a class="nav-item active" href="#overview"><span aria-hidden="true">▦</span> Overview</a><a class="nav-item" href="#location-section"><span aria-hidden="true">⌖</span> Locations</a><a class="nav-item" href="#preview-section"><span aria-hidden="true">◇</span> Interactive preview</a><a href="#account-section">Account &amp; parking dashboard</a></nav>
   <div class="sidebar-note"><span class="note-icon" aria-hidden="true">i</span><strong>Built around clarity.</strong><p>Availability at a glance. Parking records confirmed by staff.</p><span class="workspace-tag">LOCAL WORKSPACE</span></div>
   <div class="sidebar-footer"><span class="avatar" aria-hidden="true">VP</span><span>Vehicle Parking System<small>Development workspace</small></span></div>
 </aside>
@@ -28,20 +28,28 @@
       <p id="status" class="snapshot-status" role="status" aria-live="polite">Loading availability…</p>
     </section>
     <section id="location-section" class="locations-section" aria-labelledby="locations-title"><div class="section-heading"><div><p class="eyebrow">THE BIG PICTURE</p><h2 id="locations-title">Your locations</h2></div><span id="location-count" class="count-label">Loading…</span></div><div id="locations" class="location-grid" aria-label="Location availability"><p class="empty-state">Getting your latest availability snapshot…</p></div></section>
-    <section id="preview-section" class="preview-section" aria-labelledby="preview-title"><div class="preview-copy"><span class="preview-tag">INTERACTIVE DEMO · SAMPLE DATA</span><h2 id="preview-title">See a parking change in action.</h2><p>This isolated preview shows an arrival and departure. It never changes your dashboard counts or database.</p><div class="preview-actions"><button id="preview-arrival" class="primary-button" type="button">Preview arrival <span aria-hidden="true">↗</span></button><button id="preview-departure" class="secondary-button" type="button" disabled>Preview departure</button></div><p class="preview-disclaimer">Actual parking updates require authorized staff check-in/check-out. Those controls are not available on this page yet.</p></div><div id="sample-bay" class="sample-bay" data-occupied="false"><div class="bay-label"><span>DEMO BAY</span><span id="preview-state" class="bay-state">Empty</span></div><div class="bay-illustration" aria-hidden="true"><div class="bay-lines"><span>P</span><svg class="sample-car" viewBox="0 0 80 130"><rect x="8" y="6" width="64" height="118" rx="22" fill="#294e57"/><path d="M19 35Q40 26 61 35L57 52H23Z" fill="#cae2d7"/><path d="M23 87H57L60 104Q40 111 20 104Z" fill="#cae2d7"/><rect x="13" y="15" width="11" height="5" rx="2" fill="#e8f6d6"/><rect x="56" y="15" width="11" height="5" rx="2" fill="#e8f6d6"/></svg></div></div><p id="preview-message" role="status" aria-live="polite">Sample vehicle is not parked.</p><span class="sample-footnote">Preview only · no saved parking session</span></div></section>
+    <section id="preview-section" class="preview-section" aria-labelledby="preview-title"><div class="preview-copy"><span class="preview-tag">INTERACTIVE DEMO · SAMPLE DATA</span><h2 id="preview-title">See a parking change in action.</h2><p>This isolated preview shows an arrival and departure. It never changes your dashboard counts or database.</p><div class="preview-actions"><button id="preview-arrival" class="primary-button" type="button">Preview arrival <span aria-hidden="true">↗</span></button><button id="preview-departure" class="secondary-button" type="button" disabled>Preview departure</button></div><p class="preview-disclaimer">Actual parking updates require authorized staff check-in/check-out. Sign in with an assigned staff role to use the parking dashboard controls.</p></div><div id="sample-bay" class="sample-bay" data-occupied="false"><div class="bay-label"><span>DEMO BAY</span><span id="preview-state" class="bay-state">Empty</span></div><div class="bay-illustration" aria-hidden="true"><div class="bay-lines"><span>P</span><svg class="sample-car" viewBox="0 0 80 130"><rect x="8" y="6" width="64" height="118" rx="22" fill="#294e57"/><path d="M19 35Q40 26 61 35L57 52H23Z" fill="#cae2d7"/><path d="M23 87H57L60 104Q40 111 20 104Z" fill="#cae2d7"/><rect x="13" y="15" width="11" height="5" rx="2" fill="#e8f6d6"/><rect x="56" y="15" width="11" height="5" rx="2" fill="#e8f6d6"/></svg></div></div><p id="preview-message" role="status" aria-live="polite">Sample vehicle is not parked.</p><span class="sample-footnote">Preview only · no saved parking session</span></div></section>
     <section id="account-section" class="locations-section" aria-labelledby="account-title">
       <h2 id="account-title">Your account and vehicle</h2>
       <p id="account-message" role="status">Connecting to account service…</p>
       <button id="account-login" class="primary-button" type="button" disabled>Sign in / register</button>
       <button id="account-logout" class="secondary-button" type="button" hidden>Sign out</button>
-      <form id="vehicle-form" hidden>
-        <p><label>Registration jurisdiction <input name="registrationJurisdiction" maxlength="64" required autocomplete="off"></label></p>
-        <p><label>Vehicle registration <input name="registration" maxlength="64" required autocomplete="off"></label></p>
+      <button id="vehicle-open" class="primary-button" type="button" hidden>Register your vehicle</button>
+      <div id="account-vehicle" class="vehicle-summary" aria-live="polite"></div>
+      <dialog id="vehicle-dialog" aria-labelledby="vehicle-dialog-title">
+      <button id="vehicle-close" class="secondary-button" type="button">Close ✕</button>
+      <h2 id="vehicle-dialog-title">Your vehicle details</h2>
+      <p>Add the vehicle you use for parking. Jurisdiction, registration and vehicle type are required.</p>
+      <form id="vehicle-form">
+        <p><label>Registration jurisdiction <input name="registrationJurisdiction" maxlength="64" required autocomplete="off" placeholder="e.g. IN-GJ" aria-describedby="jurisdiction-help"></label><small id="jurisdiction-help">Country / issuing region of your plate, for example IN-GJ for Gujarat, India. Use a consistent region code.</small></p>
+        <p><label>Vehicle registration <input name="registration" maxlength="64" required autocomplete="off" placeholder="e.g. GJ 01 AB 1234" aria-describedby="plate-help"></label><small id="plate-help">The number printed on your plate. Spaces and hyphens are normalized when saved.</small></p>
         <p><label>Vehicle type <select name="vehicleType"><option value="car">Car</option><option value="motorcycle">Motorcycle</option><option value="van">Van</option></select></label></p>
-        <p><label>Make <input name="make" maxlength="100"></label> <label>Model <input name="model" maxlength="100"></label> <label>Color <input name="color" maxlength="100"></label></p>
+        <p><label>Make (optional) <input name="make" maxlength="100" placeholder="e.g. Maruti Suzuki"></label> <label>Model (optional) <input name="model" maxlength="100" placeholder="e.g. Swift"></label> <label>Color (optional) <input name="color" maxlength="100" placeholder="e.g. White"></label></p>
+        <aside class="vehicle-next"><strong>What happens after saving?</strong><p>Your vehicle is saved to your account in the database. You can have one enabled vehicle. Saving does not reserve a space or start parking: authorized staff must confirm check-in. End an active parking session before replacing the vehicle. Previous history is kept.</p></aside>
+        <p id="vehicle-feedback" role="status" aria-live="polite"></p>
         <button class="primary-button" type="submit">Save registered vehicle</button>
       </form>
-      <pre id="account-vehicle" style="white-space:pre-wrap;overflow-wrap:anywhere" aria-live="polite"></pre>
+      </dialog>
     </section>
     <footer class="page-footer"><span>Vehicle Parking System</span><span>Snapshot availability · refresh to update</span></footer>
   </main>

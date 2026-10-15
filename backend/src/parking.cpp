@@ -1,4 +1,5 @@
 #include "parking.h"
+#include "dashboard.h"
 #include <algorithm>
 #include <regex>
 
@@ -190,7 +191,7 @@ Reply execute(Database &db, const Identity &actor, const drogon::HttpRequestPtr 
         Json::Value event; event["spaceId"]=space; event["status"]=state;
         db.query("INSERT INTO outbox_events(location_id,aggregate_id,aggregate_version,event_type,payload) VALUES($1::uuid,$2::uuid,$3::bigint,'space_status',$4::jsonb)",{row.get(0,"location_id"),space,version.get(0,"version"),jsonString(event)});
         db.commit(); response["status"]=state;
-    } else throw ApiError(404,"not_found");
+    } else return dashboard(db,actor,req,requestId);
     return {200,response};
 }
 }
