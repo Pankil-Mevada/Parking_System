@@ -125,9 +125,9 @@ class Phase34(unittest.TestCase):
         schema=('run_'+self.run_id.replace('-','')[:12]+'_'+self._testMethodName)[:63]
         self.db.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(schema)))
         self.db.execute(sql.SQL('SET search_path TO {},public').format(sql.Identifier(schema)))
-        for migration in ('001_initial.sql','002_identity.sql','003_delivery.sql','004_client_health.sql','005_staff_accounts.sql','006_account_approval.sql'):
+        for migration in ('001_initial.sql','002_identity.sql','003_delivery.sql','004_client_health.sql','005_staff_accounts.sql','006_account_approval.sql','008_access_and_location.sql','009_location_names.sql'):
             self.db.execute((ROOT/'database/migrations'/migration).read_text(encoding='utf-8'))
-        self.db.execute("CREATE TABLE schema_migrations(version text PRIMARY KEY); INSERT INTO schema_migrations VALUES('001'),('002'),('003'),('004'),('005'),('006')")
+        self.db.execute("CREATE TABLE schema_migrations(version text PRIMARY KEY); INSERT INTO schema_migrations VALUES('001'),('002'),('003'),('004'),('005'),('006'),('008'),('009')")
         for index,user in enumerate(self.identities):
             self.db.execute("INSERT INTO users(id,identity_provider_reference,display_name,email,approval_status,registration_kind) VALUES(%s,%s,%s,%s,'approved','driver')",
                             (self.users[index],IDENTITY+'/realms/'+REALM+'|'+user['id'],'Synthetic Test',user['username']))
@@ -730,6 +730,111 @@ class Phase34(unittest.TestCase):
     def test_49_registration_pending_browser(self):
         from approval_browser import journey
         journey(self)
+
+    def test_56_scoped_vehicle_register_and_location_names(self):
+        self.db.execute('UPDATE users SET registration_location_id=%s WHERE id=%s',(self.location,self.users[2]))
+        self.db.execute('UPDATE users SET registration_location_id=%s WHERE id=%s',(self.other_location,self.users[3]))
+        self.db.execute("UPDATE vehicles SET make='TestMake',model='TestModel' WHERE id=%s",(self.v1,))
+        base=f'/api/staff/locations/{self.location}/vehicle-register'
+        self.assertEqual(api(self.driver,base)[0],403)
+        self.assertEqual(api(self.staff,f'/api/staff/locations/{self.other_location}/vehicle-register')[0],403)
+        for token in (self.staff,self.admin):
+            code,data=api(token,base);self.assertEqual(code,200,data);self.assertEqual(data['counts']['total'],1);self.assertEqual([row['id'] for row in data['vehicles']],[self.v1]);self.assertEqual(data['vehicles'][0]['vehicle_name'],'TestMake TestModel');self.assertEqual(data['vehicles'][0]['owner_name'],'Synthetic Test')
+        self.assertEqual(api(self.staff,base+'?search=missing')[1]['vehicles'],[])
+        self.assertEqual(api(self.staff,base+'?status=invalid')[0],400)
+        self.assertEqual(api(self.staff,base+'?offset=-1')[0],400)
+        code,parked=self.checkin();self.assertEqual(code,201)
+        self.assertEqual(api(self.staff,base+'?status=parked')[1]['counts']['parked'],1)
+        self.assertEqual(api(self.staff,base+'?status=enabled')[1]['vehicles'],[])
+        config=f'/api/admin/locations/{self.location}/configuration'
+        body={'name':'Test Building','timezone':'Asia/Kolkata','area':'Test Area','city':'Test City','country':'India','address':'Main gate beside park','reason':'Reviewed readable building details'}
+        self.assertEqual(api(self.staff,config,'PUT',body)[0],403)
+        self.assertEqual(api(self.admin,config,'PUT',body)[0],200)
+        self.assertEqual(api(self.driver,f'/api/locations/{self.location}/dashboard')[1]['location']['area'],'Test Area')
+        self.assertEqual(api(self.admin,config,'PUT',dict(body,area='x'*201))[0],400)
+        self.assertEqual(api(self.admin,config)[1]['location']['area'],'Test Area')
+        self.assertEqual(self.checkout(parked['session']['id'])[0],200)
+        self.assertEqual(api(self.driver,'/api/me/vehicle','PUT',{'disabled':True})[0],200)
+        self.assertEqual(api(self.staff,base+'?status=disabled')[1]['counts']['disabled'],1)
+        self.assertEqual(len(api(self.staff,base+'?status=disabled')[1]['vehicles']),1)
+
+    def test_55_main_gate_verification_and_decisions(self):
+        base=f'/api/staff/locations/{self.location}'
+        query='/gate-check?jurisdiction=TEST&registration=AB123'
+        self.assertEqual(api(self.driver,base+query)[0],403)
+        self.assertEqual(api(self.staff,f'/api/staff/locations/{self.other_location}'+query)[0],403)
+        for token in (self.staff,self.admin):
+            code,gate=api(token,base+query);self.assertEqual(code,200,gate);self.assertEqual(gate['status'],'eligible');self.assertTrue(gate['canCheckIn']);self.assertEqual(gate['vehicle']['id'],self.v1)
+            self.assertEqual({row['id'] for row in gate['spaces']},set(self.spaces[:2]))
+        self.assertEqual(api(self.staff,base+'/gate-check?registration=AB123')[0],400)
+        self.assertEqual(api(self.staff,base+'/gate-check?jurisdiction=TEST&registration=UNKNOWN')[1]['status'],'not_registered')
+        for status in ('pending','rejected'):
+            self.db.execute('UPDATE users SET approval_status=%s WHERE id=%s',(status,self.users[2]))
+            gate=api(self.staff,base+query)[1];self.assertEqual(gate['status'],'approval_pending' if status=='pending' else 'registration_rejected');self.assertFalse(gate['canCheckIn']);self.assertEqual(gate['spaces'],[])
+            self.assertEqual(self.checkin()[0],409)
+        self.db.execute("UPDATE users SET approval_status='approved',status='disabled' WHERE id=%s",(self.users[2],))
+        self.assertEqual(api(self.staff,base+query)[1]['status'],'account_disabled')
+        self.db.execute("UPDATE users SET status='enabled' WHERE id=%s",(self.users[2],))
+        self.db.execute('UPDATE vehicles SET disabled_at=now() WHERE id=%s',(self.v1,))
+        self.assertEqual(api(self.staff,base+query)[1]['status'],'vehicle_disabled')
+        self.db.execute('UPDATE vehicles SET disabled_at=NULL WHERE id=%s',(self.v1,))
+        body={'registration':'UNKNOWN','jurisdiction':'TEST','decision':'rejected'};key=str(uuid.uuid4())
+        self.assertEqual(api(self.staff,base+'/gate-decisions','POST',body)[0],400)
+        self.assertEqual(api(self.driver,base+'/gate-decisions','POST',body,key)[0],403)
+        self.assertEqual(api(self.staff,base+'/gate-decisions','POST',body,key)[0],200)
+        self.assertEqual(api(self.staff,base+'/gate-decisions','POST',body,key)[0],200)
+        self.assertEqual(api(self.staff,base+'/gate-decisions','POST',dict(body,comment='Different reason'),key)[0],409)
+        self.assertEqual(self.scalar("SELECT count(*) FROM audit_events WHERE action='gate_entry_rejected'"),1)
+        self.assertEqual(self.scalar('SELECT count(*) FROM parking_sessions'),0)
+        self.assertEqual(api(self.admin,base+'/gate-decisions','POST',dict(body,comment='Not registered at gate'),str(uuid.uuid4()))[0],200)
+        self.assertEqual(api(self.staff,base+'/gate-decisions','POST',dict(body,comment='x'*501),str(uuid.uuid4()))[0],400)
+        check={'vehicleId':self.v1,'spaceId':self.spaces[0],'comment':'Visual plate verification at main gate'}
+        code,parked=api(self.admin,'/api/staff/check-ins','POST',check,str(uuid.uuid4()));self.assertEqual(code,201,parked)
+        self.assertEqual(api(self.staff,base+query)[1]['status'],'already_parked')
+        self.assertEqual(self.scalar("SELECT sanitized_changes->>'comment' FROM audit_events WHERE action='gate_entry_approved'"),check['comment'])
+        self.assertEqual(self.checkout(parked['session']['id'])[0],200)
+
+    def test_53_staff_driver_approval_queues_and_scope(self):
+        base=f'/api/staff/locations/{self.location}/approvals'
+        applicants=[]
+        for kind,location in [('driver',self.location),('employee',self.location),('driver',self.other_location)]:
+            user=create_user('queue-'+kind+'-'+secrets.token_hex(5));access=login(user)['access_token'];profile=api(access,'/api/me')[1]
+            code,places=api(access,'/api/me/registration-locations');self.assertEqual(code,200)
+            self.assertTrue(all(set(row)=={'id','name'} for row in places['locations']))
+            self.assertEqual(api(access,'/api/me/registration','POST',{'kind':kind,'locationId':location})[0],200)
+            self.assertEqual(api(access,'/api/me')[1]['registrationLocationId'],location)
+            applicants.append(profile['id'])
+        driver,employee,other=applicants
+        code,queue=api(self.staff,base);self.assertEqual(code,200,queue)
+        self.assertIn(driver,[row['id'] for row in queue['requests']]);self.assertNotIn(employee,[row['id'] for row in queue['requests']]);self.assertNotIn(other,[row['id'] for row in queue['requests']])
+        self.assertEqual(queue['counts']['pending'],1)
+        body={'userId':driver,'decision':'approved','reason':'Verified driver identity and building access'}
+        self.assertEqual(api(self.staff,base,'POST',body)[0],400)
+        self.assertEqual(api(self.staff,base,'POST',dict(body,verificationConfirmed=True,role='operator_admin'))[0],403)
+        self.assertEqual(api(self.staff,base,'POST',dict(body,userId=employee,verificationConfirmed=True))[0],403)
+        self.assertEqual(api(self.staff,base,'POST',dict(body,userId=other,verificationConfirmed=True))[0],403)
+        self.assertEqual(api(self.driver,base)[0],403)
+        self.assertEqual(api(self.staff,f'/api/staff/locations/{self.other_location}/approvals')[0],403)
+        self.assertEqual(api(self.staff,base,'POST',dict(body,verificationConfirmed=True))[0],200)
+        queue=api(self.staff,base+'?status=approved')[1]
+        self.assertIn(driver,[row['id'] for row in queue['requests']]);self.assertEqual(queue['counts']['pending'],0)
+        self.assertEqual(api(self.staff,base+'?status=invalid')[0],400)
+        self.assertEqual(self.scalar('SELECT count(*) FROM staff_assignments WHERE user_id=%s',(driver,)),0)
+        rejected=create_user('queue-reject-'+secrets.token_hex(5));access=login(rejected)['access_token'];profile=api(access,'/api/me')[1]
+        self.assertEqual(api(access,'/api/me/registration','POST',{'kind':'driver','locationId':self.location})[0],200)
+        self.assertEqual(api(self.staff,base,'POST',dict(body,userId=profile['id'],decision='rejected'))[0],200)
+        self.assertIn(profile['id'],[row['id'] for row in api(self.staff,base+'?status=rejected')[1]['requests']])
+
+    def test_54_manual_building_coordinates_and_validation(self):
+        base=f'/api/admin/locations/{self.location}/configuration'
+        body={'name':'Test Building','timezone':'Asia/Kolkata','address':'Synthetic test address','latitude':'23.02','longitude':'72.57','reason':'Verified building position'}
+        self.assertEqual(api(self.staff,base,'PUT',body)[0],403)
+        self.assertEqual(api(self.admin,base,'PUT',body)[0],200)
+        location=api(self.admin,base)[1]['location'];self.assertEqual(location['address'],body['address']);self.assertEqual(float(location['latitude']),23.02)
+        for changes in ({'latitude':'91'},{'longitude':'181'},{'latitude':'NaN'},{'latitude':'12garbage'},{'longitude':''}):
+            self.assertEqual(api(self.admin,base,'PUT',dict(body,**changes))[0],400)
+        self.assertEqual(api(self.admin,base,'PUT',dict(body,latitude='',longitude=''))[0],200)
+        self.assertIsNone(api(self.admin,base)[1]['location']['latitude'])
 
     def test_48_registration_approval_gate(self):
         self.assertEqual(api(None,'/api/locations')[0],401)

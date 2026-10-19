@@ -10,7 +10,7 @@
   "refreshTokenMaxReuse": 0,
   "passwordPolicy": "length(12) and notUsername(undefined) and notEmail(undefined)",
   "smtpServer": {"host": "mail", "port": "1025", "from": "parking@example.test", "auth": "false", "ssl": "false", "starttls": "false"},
-  "browserFlow": "parking-password",
+  "browserFlow": "parking-password-sso",
   "resetCredentialsFlow": "parking-reset",
   "authenticatorConfig": [
     {"alias": "password-reference", "config": {"default.reference.value": "pwd", "default.reference.maxAge": "43200"}},
@@ -37,7 +37,45 @@
       {"authenticator": "auth-username-password-form", "authenticatorConfig": "password-reference", "requirement": "REQUIRED", "priority": 10, "authenticatorFlow": false, "userSetupAllowed": false},
       {"authenticator": "auth-otp-form", "authenticatorConfig": "otp-reference", "requirement": "REQUIRED", "priority": 20, "authenticatorFlow": false, "userSetupAllowed": true}
     ]
-  }],
+  },
+    {
+        "alias": "parking-password-sso",
+        "providerId": "basic-flow",
+        "topLevel": true,
+        "builtIn": false,
+        "authenticationExecutions": [
+          {
+            "authenticator": "auth-cookie",
+            "requirement": "ALTERNATIVE",
+            "priority": 10,
+            "userSetupAllowed": false,
+            "authenticatorFlow": false
+          },
+          {
+            "flowAlias": "parking-password-sso-forms",
+            "requirement": "ALTERNATIVE",
+            "priority": 20,
+            "userSetupAllowed": false,
+            "authenticatorFlow": true
+          }
+        ]
+      },
+      {
+        "alias": "parking-password-sso-forms",
+        "providerId": "basic-flow",
+        "topLevel": false,
+        "builtIn": false,
+        "authenticationExecutions": [
+          {
+            "authenticator": "auth-username-password-form",
+            "requirement": "REQUIRED",
+            "priority": 10,
+            "userSetupAllowed": false,
+            "authenticatorFlow": false
+          }
+        ]
+      }
+  ],
   "clients": [
     {
       "clientId": "parking-web", "publicClient": true,

@@ -35,4 +35,14 @@ SELECT NOT EXISTS (SELECT 1 FROM schema_migrations WHERE version='006') AS apply
 \ir migrations/006_account_approval.sql
 INSERT INTO schema_migrations(version) VALUES ('006');
 \endif
+SELECT NOT EXISTS (SELECT 1 FROM schema_migrations WHERE version='008') AS apply_008 \gset
+\if :apply_008
+\ir migrations/008_access_and_location.sql
+INSERT INTO schema_migrations(version) VALUES ('008');
+\endif
+SELECT NOT EXISTS (SELECT 1 FROM schema_migrations WHERE version='009') AS apply_009 \gset
+\if :apply_009
+\ir migrations/009_location_names.sql
+INSERT INTO schema_migrations(version) VALUES ('009');
+\endif
 COMMIT;

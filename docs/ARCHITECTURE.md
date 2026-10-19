@@ -1,7 +1,7 @@
 # Architecture and implementation status
 
 Latest local identity/onboarding change: email/password login uses Keycloak's
-`parking-password` flow; OTP is optional locally via `REQUIRE_STAFF_MFA=false`.
+`parking-password-sso` flow (provider Cookie session reuse, then password form when needed); OTP is optional locally via `REQUIRE_STAFF_MFA=false`.
 API authorization still checks verified identity, account status and location roles.
 Production privileged MFA remains enforced by the API. See the current manual
 workflow in [ROLE_UI_GUIDE.md](ROLE_UI_GUIDE.md).

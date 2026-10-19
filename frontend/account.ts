@@ -14,9 +14,16 @@ open.addEventListener('click', () => { feedback.textContent = ''; dialog.showMod
 document.querySelector('#vehicle-close')!.addEventListener('click', () => dialog.close());
 function showVehicle(result: Record<string, unknown>): void {
   const saved = result.vehicle as Record<string, unknown> | null;
-  vehicle.textContent = saved
-    ? `${saved.normalized_registration} · ${saved.registration_jurisdiction} · ${saved.vehicle_type} — ${[saved.make, saved.model, saved.color].filter(Boolean).join(' / ') || 'No optional details added'}`
-    : 'No vehicle registered yet. Add your vehicle to prepare for staff check-in.';
+  vehicle.replaceChildren();
+  if(saved) {
+    const card=document.createElement('article');card.className='vehicle-detail-card';
+    const sticker=document.createElement('span');sticker.className='vehicle-sticker';sticker.textContent=saved.vehicle_type==='motorcycle'?'🏍️':saved.vehicle_type==='van'?'🚐':'🚘';sticker.setAttribute('aria-hidden','true');
+    const plate=document.createElement('strong');plate.className='registration-plate';plate.textContent=String(saved.normalized_registration);
+    const details=document.createElement('dl');
+    for(const [label,key] of [['Jurisdiction','registration_jurisdiction'],['Vehicle type','vehicle_type'],['Make','make'],['Model','model'],['Color','color']]){const term=document.createElement('dt'),value=document.createElement('dd');term.textContent=label;value.textContent=String(saved[key] || 'Not provided');details.append(term,value);}
+    const help=document.createElement('p');help.textContent='One enabled vehicle is linked to your account. Staff confirm arrival and departure. End active parking before replacing your vehicle.';
+    card.append(sticker,plate,details,help);vehicle.append(card);
+  } else vehicle.textContent='No vehicle registered yet. Add your vehicle to prepare for staff check-in.';
   open.textContent = saved ? 'Manage vehicle' : 'Register your vehicle';
   const fields: Record<string, string> = {registrationJurisdiction:'registration_jurisdiction',registration:'normalized_registration',vehicleType:'vehicle_type',make:'make',model:'model',color:'color'};
   for (const [name, key] of Object.entries(fields)) {
@@ -80,7 +87,7 @@ async function initialize(): Promise<void> {
         } else if(!profile.registrationKind) {
           title.textContent='Complete your account setup';message.textContent='Your account is registered. Choose the access you need below. Parking information stays private until your access is activated.';
         } else if(profile.registrationKind==='driver') {
-          title.textContent='Waiting for driver approval';message.textContent='Your driver account is registered and waiting for your building administrator to approve it. After approval, you can manage your vehicle and view your parking status and history.';
+          title.textContent='Waiting for driver approval';message.textContent='Your driver account is registered and waiting for authorized building staff to verify and approve it. After approval, you can manage your vehicle and view your parking status and history.';
         } else if(sessionStorage.getItem('parking-owner-setup-user')===String(profile.id)) {
           title.textContent='Administrator access not activated yet';message.textContent='Your account is registered. The system owner must activate your administrator access before you can manage this building. You do not need to register again. Use Check approval status after the owner completes setup.';
         } else {
@@ -95,12 +102,16 @@ async function initialize(): Promise<void> {
         selection=document.createElement('form');selection.className='workspace-form';const label=document.createElement('label');label.textContent='Requested access';
         const kind=document.createElement('select');kind.setAttribute('aria-label','Requested access');kind.required=true;kind.append(new Option('Select access',''),new Option('Driver / user','driver'),new Option('Employee','employee'),new Option('Building owner / administrator','owner'));label.append(kind);
         const help=document.createElement('p');help.textContent='Choosing administrator does not grant a role. Only the system owner can activate administrator access.';
-        const submit=document.createElement('button');submit.className='primary-button';submit.textContent='Submit access request';selection.append(label,help,submit);account.append(selection);
+        const submit=document.createElement('button');submit.className='primary-button';submit.textContent='Submit access request';const buildingLabel=document.createElement('label');buildingLabel.textContent='Building / parking location';
+        const building=document.createElement('select');building.setAttribute('aria-label','Building / parking location');building.append(new Option('Select building',''));
+        const places=await api('/api/me/registration-locations');for(const place of places.locations as {id:string;name:string}[])building.append(new Option(place.name,place.id));
+        if(building.options.length===2)building.selectedIndex=1;building.required=building.options.length>1;buildingLabel.append(building);
+        selection.append(label,buildingLabel,help,submit);account.append(selection);
         selection.addEventListener('submit',event=>{event.preventDefault();submit.disabled=true;
           // Owner intent changes waiting copy only. Server registration remains
           // unprivileged employee; only trusted setup or authorized assignment grants roles.
           const requested=kind.value;const registrationKind=requested==='driver'?'driver':'employee';
-          void api('/api/me/registration','POST',{kind:registrationKind}).then(()=>{
+          void api('/api/me/registration','POST',{kind:registrationKind,...(building.value?{locationId:building.value}:{})}).then(()=>{
             if(requested==='owner')sessionStorage.setItem('parking-owner-setup-user',String(me.id));
             else sessionStorage.removeItem('parking-owner-setup-user');
             me={...me,registrationKind};selection?.remove();showPending(me);

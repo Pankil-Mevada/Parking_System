@@ -1091,3 +1091,49 @@ select {
 .staff-panel{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;align-items:start}.staff-panel>[data-view=checkin]{grid-column:1/-1}.staff-guide{padding:24px;border:1px solid #c7dce7;border-radius:14px;background:#eef5fa}.staff-guide h3{margin-top:0}.staff-driver-results{min-width:0}.staff-panel .workspace-form{margin:0}dialog .workspace-form{max-width:640px}dialog .workspace-form input,dialog .workspace-form select{width:100%;box-sizing:border-box}@media(max-width:760px){.staff-panel{grid-template-columns:minmax(0,1fr)}}
 
 .product-intro{max-width:1100px;margin:40px auto;padding:48px;border-radius:24px;background:#edf4ed}.product-intro h1{font-size:clamp(32px,4vw,54px);line-height:1.15}.product-intro p{line-height:1.8;max-width:850px}.intro-features{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin:36px 0}.intro-features article{background:white;padding:24px;border-radius:16px}#registration-choice{max-width:500px;border:1px solid #bfd3c5;border-radius:20px;padding:32px}#registration-choice select{display:block;width:100%;padding:14px;margin:12px 0}[hidden]{display:none!important}@media(max-width:700px){.intro-features{grid-template-columns:1fr}.product-intro{padding:24px}}
+
+/* Access queues and illustrated parking cards */
+.approval-panel { max-width: 1100px; }
+.approval-tabs { display: flex; flex-wrap: wrap; gap: .65rem; margin: 1.2rem 0; }
+.approval-tabs [aria-pressed=true] { background: #244f43; color: white; border-color: #244f43; }
+.request-card { margin: 1rem 0; padding: 1.3rem; background: white; border: 1px solid #d9e4dd; border-radius: 16px; }
+.request-card h3 { margin-top: 0; }
+.request-card .workspace-form { box-shadow: none; padding: .7rem 0; border: 0; }
+.request-card input[type=checkbox] { width: 1.3rem; height: 1.3rem; margin: .4rem .6rem; vertical-align: middle; }
+.vehicle-detail-card { max-width: 650px; background: linear-gradient(135deg,#eef6f1,#fff); border: 1px solid #c7dbcf; border-radius: 20px; padding: 1.5rem; margin: 1rem 0; }
+.vehicle-sticker { display: block; font-size: 5rem; line-height: 1.3; }
+.registration-plate { display: inline-block; background: white; color: #182f28; border: 2px solid #45665b; border-radius: 7px; padding: .55rem 1rem; font-size: 1.45rem; letter-spacing: .1em; overflow-wrap: anywhere; }
+.vehicle-detail-card dl { display: grid; grid-template-columns: minmax(90px,1fr) 2fr; gap: .7rem; }
+.vehicle-detail-card dt { color: #52665c; }.vehicle-detail-card dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.parking-sticker { display: block; font-size: 2.9rem; border-bottom: 3px dashed #b5cabe; padding: .4rem 0 .8rem; margin-bottom: .8rem; }
+.floor-sticker { font-size: 2.2rem; display: block; }
+.parking-notifications:empty { display: none; }
+.parking-notifications p { border-left: 4px solid #2e6a53; padding: .7rem 1rem; background: #eef7f0; border-radius: 6px; }
+.approval-panel > label { display: inline-flex; flex-direction: column; gap: .4rem; margin-right: .6rem; max-width: 100%; }
+.approval-panel > label input { padding: .7rem; border: 1px solid #b9c9bf; border-radius: 8px; }
+@media(max-width:600px) { .request-card { padding: 1rem; }.approval-tabs button { flex: 1; }.vehicle-sticker { font-size: 3.5rem; } }
+
+.request-card .verification-label { display:flex; flex-direction:row-reverse; align-items:center; justify-content:flex-end; gap:.6rem; }
+
+.approval-tabs .secondary-button[aria-pressed=true],.approval-tabs .secondary-button[aria-pressed=true]:not(:disabled):hover { background:#244f43; color:#fff; border-color:#244f43; }
+
+/* Readable two-column desktop workspaces; one column on phones. */
+.floor-grid,.space-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.floor-card { min-width:0; }.floor-card button { margin-top:12px; }
+.workspace-form { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 20px; }
+.workspace-form>h3,.workspace-form>p,.workspace-form>button,.workspace-form>.verification-label { grid-column:1/-1; }
+.workspace-form>button { justify-self:start; }
+.gate-review { padding:20px;border:1px solid #c7d9cf;border-radius:14px;background:#f4f8f5;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px; }
+.gate-review>h3,.gate-review>strong,.gate-review>p,.gate-review>label:has(textarea) { grid-column:1/-1; }
+.gate-review label { display:flex;flex-direction:column;gap:8px;min-width:0; }.gate-review textarea { box-sizing:border-box;width:100%;padding:12px;font:inherit;border:1px solid #adbfba;border-radius:8px;resize:vertical; }
+.gate-review select { width:100%; }.gate-status { padding:12px;background:#e5eee9;border-radius:8px; }
+@media(max-width:700px) { .floor-grid,.space-grid,.workspace-form,.gate-review { grid-template-columns:minmax(0,1fr); } }
+
+.gate-review:not([data-status=eligible]) .gate-status { background:#fff0e9;color:#873d2b; }.gate-review[data-status=eligible] .gate-status { background:#dceee1;color:#244f43; }
+
+.location-preview { margin:18px 0;padding:20px;border:1px solid #c6d9cd;border-radius:16px;background:linear-gradient(120deg,#edf5ee,#f6f9fc); }.location-preview h2 {margin:.4rem 0;}.location-preview p {margin:.5rem 0;overflow-wrap:anywhere;}.registry-counts { display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin:18px 0; }.registry-counts>div {padding:16px;border:1px solid #cfddd4;border-radius:12px;background:#f1f7f3;font-weight:600;}.vehicle-register {min-width:0;}
+
+.saved-location-card { max-width:760px; padding:28px; margin:18px 0; border:1px solid #cadcd0; border-radius:20px; background:linear-gradient(125deg,#eef7ef,#fff); }
+.saved-location-card h2 { margin:10px 0;font-size:26px; }.saved-location-card p {line-height:1.6;overflow-wrap:anywhere;}.saved-location-label {display:block;color:#386047;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;}.location-pin {display:block;font-size:36px;margin-bottom:12px;}.location-note,.location-privacy {font-size:13px;color:#52675c;line-height:1.6;}.saved-location-card button {margin-top:14px;}
+.parking-workspace dialog.location-picker {width:min(760px,calc(100% - 24px));padding:28px;}.location-picker-actions {display:flex;flex-wrap:wrap;gap:12px;margin:20px 0;}.address-review {padding:20px;border:1px solid #c7dacd;border-radius:16px;background:#eef6f0;}.address-review p {margin:8px 0;overflow-wrap:anywhere;}.address-review strong {font-size:20px;}.location-picker .workspace-form {border:0;padding:0;margin:22px 0;}.location-picker .workspace-form>label:has([name=address]) {grid-column:1/-1;}.location-picker .workspace-form>label:has([name=address]) input {width:100%;}.location-picker h2 {margin-top:0;}
+@media(max-width:600px){.saved-location-card{padding:20px;}.parking-workspace dialog.location-picker{padding:20px;}.location-picker-actions button{width:100%;}}

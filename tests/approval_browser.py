@@ -44,6 +44,7 @@ def journey(case):
                 page.locator('#otp').fill(otp(user['secret']));page.locator('#kc-login').click()
             expect(page.get_by_role('heading',name='Complete your account setup',exact=True)).to_be_visible(timeout=20000)
             page.get_by_label('Requested access',exact=True).select_option('employee')
+            page.get_by_label('Building / parking location',exact=True).select_option(case.location)
             page.get_by_role('button',name='Submit access request',exact=True).click()
             expect(page.get_by_role('heading',name='Waiting for staff access',exact=True)).to_be_visible(timeout=20000)
             expect(page.get_by_role('button',name='Check approval status',exact=True)).to_be_visible()
@@ -64,7 +65,7 @@ def journey(case):
             if os.environ.get('PARKING_TEST_PASSWORD_ONLY')!='1':
                 admin.locator('#otp').fill(otp(account['secret']));admin.locator('#kc-login').click()
             admin.get_by_role('link',name='Account approvals',exact=True).click()
-            decision=admin.get_by_role('heading',name='Synthetic Test · '+user['email']+' · employee',exact=True).locator('..')
+            decision=admin.locator('.request-card').filter(has_text=user['email']).locator('form')
             expect(decision).to_be_visible(timeout=20000)
             decision.locator('select').first.select_option('approved')
             decision.locator('select').last.select_option('attendant')
@@ -84,6 +85,7 @@ def journey(case):
                 if os.environ.get('PARKING_TEST_PASSWORD_ONLY')!='1':
                     waiting.locator('#otp').fill(otp(applicant['secret']));waiting.locator('#kc-login').click()
                 waiting.get_by_label('Requested access',exact=True).select_option(access)
+                waiting.get_by_label('Building / parking location',exact=True).select_option(case.location)
                 waiting.get_by_role('button',name='Submit access request',exact=True).click()
                 expect(waiting.get_by_role('heading',name=title,exact=True)).to_be_visible(timeout=20000)
                 expect(waiting.get_by_role('link',name='My vehicle',exact=True)).to_have_count(0)

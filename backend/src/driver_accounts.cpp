@@ -50,7 +50,7 @@ Reply createDriver(Database &db,const Identity &actor,const drogon::HttpRequestP
         const auto &provider=(*users)[0];
         if(created->statusCode()==drogon::k409Conflict && provider["attributes"]["parking_provision_request"][0].asString()!=marker)throw ApiError(409,"account_exists_find_driver_instead");
         auto subject=provider["id"].asString();uuid(subject);
-        auto owner=db.query("INSERT INTO users(identity_provider_reference,display_name,email,registration_kind) VALUES($1,$2,lower(btrim($3)),'driver') RETURNING id::text",{config.issuer+"|"+subject,first+" "+last,email});
+        auto owner=db.query("INSERT INTO users(identity_provider_reference,display_name,email,registration_kind,registration_location_id) VALUES($1,$2,lower(btrim($3)),'driver',$4::uuid) RETURNING id::text",{config.issuer+"|"+subject,first+" "+last,email,location});
         result["userId"]=owner.get(0,"id");result["email"]=email;result["setupEmailSent"]=false;result["providerId"]=subject;
         Json::Value changes;changes["userId"]=result["userId"];
         db.query("INSERT INTO audit_events(actor_id,action,target_type,target_id,request_id,sanitized_changes) VALUES($1::uuid,'driver_account_created','location',$2::uuid,$3::uuid,$4::jsonb)",{actor.user,location,requestId,jsonString(changes)});

@@ -21,7 +21,7 @@ void registerProtectedApi(const std::string &databaseUrl, const AuthConfig &conf
                 Database db(databaseUrl);
                 auto actor=authenticate(db,request,config);
                 auto approval=db.query("SELECT approval_status FROM users WHERE id=$1::uuid",{actor.user}).get(0,"approval_status");
-                if(approval!="approved" && request->path()!="/api/me" && request->path()!="/api/me/registration" && request->path()!="/api/auth/logout")throw ApiError(403,"account_approval_pending");
+                if(approval!="approved" && request->path()!="/api/me" && request->path()!="/api/me/registration" && request->path()!="/api/me/registration-locations" && request->path()!="/api/auth/logout")throw ApiError(403,"account_approval_pending");
                 if(request->method()==drogon::Post && std::regex_match(request->path(),std::regex("/api/staff/locations/[^/]+/drivers")))result=createDriver(db,actor,request,config,requestId);
                 else result=execute(db,actor,request,requestId);
             } catch(const ApiError &e) { result.status=e.status; result.body["error"]=e.what(); }
@@ -53,10 +53,13 @@ void registerProtectedApi(const std::string &databaseUrl, const AuthConfig &conf
     drogon::app().registerHandler("/api/me/vehicle",decltype(handler)(handler),{drogon::Put});
     drogon::app().registerHandler("/api/me/staff-application",decltype(handler)(handler),{drogon::Post});
     drogon::app().registerHandler("/api/me/registration",decltype(handler)(handler),{drogon::Post});
+    drogon::app().registerHandler("/api/me/registration-locations",decltype(handler)(handler),{drogon::Get});
     drogon::app().registerHandlerViaRegex("/api/admin/locations/[^/]+/approvals",decltype(handler)(handler),{drogon::Get,drogon::Post});
+    drogon::app().registerHandlerViaRegex("/api/staff/locations/[^/]+/approvals",decltype(handler)(handler),{drogon::Get,drogon::Post});
     drogon::app().registerHandlerViaRegex("/api/staff/locations/[^/]+/drivers/[^/]+/vehicle",decltype(handler)(handler),{drogon::Put});
     drogon::app().registerHandlerViaRegex("/api/staff/locations/[^/]+/drivers",decltype(handler)(handler),{drogon::Get,drogon::Post});
     drogon::app().registerHandler("/api/auth/logout",decltype(handler)(handler),{drogon::Post});
+    drogon::app().registerHandlerViaRegex("/api/staff/locations/[^/]+/gate-decisions",decltype(handler)(handler),{drogon::Post});
     drogon::app().registerHandler("/api/staff/check-ins",decltype(handler)(handler),{drogon::Post});
     drogon::app().registerHandlerViaRegex("/api/staff/sessions/[^/]+/check-out",decltype(handler)(handler),{drogon::Post});
     drogon::app().registerHandlerViaRegex("/api/staff/locations/[^/]+/spaces",decltype(handler)(handler),{drogon::Get});
@@ -65,7 +68,7 @@ void registerProtectedApi(const std::string &databaseUrl, const AuthConfig &conf
     drogon::app().registerHandler("/api/me/dashboard",decltype(handler)(handler),{drogon::Get});
     drogon::app().registerHandler("/api/admin/locations",decltype(handler)(handler),{drogon::Post});
     drogon::app().registerHandlerViaRegex("/api/locations/[^/]+/(dashboard|events)",decltype(handler)(handler),{drogon::Get});
-    drogon::app().registerHandlerViaRegex("/api/staff/locations/[^/]+/(dashboard|events|vehicles)",decltype(handler)(handler),{drogon::Get});
+    drogon::app().registerHandlerViaRegex("/api/staff/locations/[^/]+/(dashboard|events|vehicles|gate-check|vehicle-register)",decltype(handler)(handler),{drogon::Get});
     drogon::app().registerHandlerViaRegex("/api/admin/locations/[^/]+/(configuration|users)",decltype(handler)(handler),{drogon::Get,drogon::Put});
     drogon::app().registerHandlerViaRegex("/api/admin/locations/[^/]+/(audit|staff-list)",decltype(handler)(handler),{drogon::Get});
     drogon::app().registerHandlerViaRegex("/api/admin/locations/[^/]+/staff-accounts",decltype(handler)(handler),{drogon::Get,drogon::Post});

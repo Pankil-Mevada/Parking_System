@@ -61,7 +61,7 @@ def run():
         realm['registrationAllowed'] = False
         # Only synthetic test realms receive the longer browser token lifetime.
         realm['accessTokenLifespan'] = 1800
-        realm['browserFlow']='parking-password' if args.password_only else 'parking-mfa'
+        realm['browserFlow']='parking-password-sso' if args.password_only else 'parking-mfa'
         realm['authenticationFlows'].append({
             'alias': 'test-password-only', 'providerId': 'basic-flow', 'topLevel': True, 'builtIn': False,
             'authenticationExecutions': [{'authenticator': 'auth-username-password-form',

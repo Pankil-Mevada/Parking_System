@@ -413,7 +413,7 @@ setup assigns real access; choosing the option never creates an administrator ro
 An approved administrator opens **Account approvals**, reviews the name/email/type,
 selects Approve or Reject and enters a reason. Employee approval also requires an
 explicit location role. The applicant clicks **Check approval status** or signs in
-again. New accounts created by staff also require admin approval before parking.
+again. New driver accounts created by staff require verification and approval by assigned staff or an administrator before parking.
 
 Administrator accounts do not wait for another administrator's approval. Create
 the first local owner directly with:
@@ -439,3 +439,177 @@ TypeScript/production build and all 5 source/replay checks passed. Screenshots a
 retained under `.tools/browser-results/RUN_ID/`.
 
 Verify this flow: `py scripts/test_phase34.py --password-only --test-name test_48 --test-name test_49`.
+
+
+### Access queues, building position and session refresh
+
+Administrator **Account approvals** and staff **Driver approvals** open with the
+Pending list already loaded. Pending, Approved and Rejected tabs show building
+counts; search and pagination work within the selected status. Staff can approve
+or reject drivers in their assigned building only. Approval requires confirming
+driver identity/building access and entering an audited reason. Employee approval
+and staff/administrator role grants remain administrator-only. Previously unscoped
+requests remain visible for authorized verification; a decision assigns their
+registration building. New registrations select their building (automatic for a
+single building), and staff-created drivers inherit the staff-selected building.
+
+**Location settings** accepts an address and paired latitude/longitude. **Use
+current location** requests browser permission and fills coordinates; review
+these against the building before saving. Manual entry works without location
+permission. No external geocoding service receives the address or coordinates.
+
+Driver vehicle cards show a registration plate, vehicle sticker and labelled
+make/model/color/type/jurisdiction. Floors and spaces have stickers and explicit
+Available, Occupied and Out of service states. In-app notices announce confirmed
+space changes, personal arrival/departure and saved approval decisions. These
+notifications reflect recorded staff/simulator actions, not physical sensors.
+
+Local password mode uses Keycloak's Cookie SSO execution, falling back to the
+password form when no valid provider session exists. Refresh restores the active
+workspace route and remembered building while authorization is checked again.
+Bearer tokens remain in memory; only interface preferences are stored in session
+storage. Expired/revoked sessions still require authentication. Strict production
+MFA flow is unchanged.
+
+For an existing local installation, preserve all records and apply:
+
+```powershell
+py scripts/migrate_access_location.py
+py scripts/configure_identity.py
+py scripts/docker_wsl.py compose build api
+py scripts/docker_wsl.py compose up -d --no-deps api
+py scripts/pnpm.py build
+```
+
+Fresh installations use `database/migrate.sql`, including additive migration 008.
+Version 007 is deliberately reserved for existing local hardware integration.
+Retained verification:
+
+```powershell
+py scripts/test_phase34.py --password-only --test-name test_36 --test-name test_48 --test-name test_49 --test-name test_53 --test-name test_54
+```
+
+Verified on 19 October 2026: retained local run
+`3870a6c1-e992-4a95-b0af-8cdf20799610` passed all five focused integration/browser
+tests (55.116 seconds), including refresh for driver, staff and admin, route
+restoration, staff verification approval, rejection/history lists, wrong-building
+and role-grant denial, automatic/manual coordinates, parking updates and mobile
+layout. Local browser arrival-to-driver update measured 0.906 seconds; this is
+local evidence only. Frontend production build and all five source/replay tests
+passed. Existing main records were preserved by the additive migration.
+
+Strict-MFA regression run `a5b4225d-0f21-40c7-9547-ba56e882671f`
+also passed seven tests (28.660 seconds): logout/provider-session revocation,
+actual MFA-claim enforcement, scoped role management, administration lookup,
+staff driver queues and coordinate validation. Main API readiness and frontend
+both returned HTTP 200 after the local update.
+
+
+### Main-gate plate verification and floor selection
+
+Desktop floor/space cards and form fields use two columns, with a single column
+on phones. **Find parking**, **Location overview** and space views expose a floor
+selector. A floor card can select that floor or return to all floors.
+
+Staff **Check in a vehicle** and administrator **Check-in / check-out** share the
+main-gate workflow. Enter the registration jurisdiction and exact number plate,
+then choose **Find vehicle**. The result explicitly identifies not registered,
+disabled vehicle, disabled driver, pending/rejected approval, already parked, or
+registered-and-enabled eligibility. Eligible vehicles offer a floor selector and
+up to 500 compatible available spaces. **Confirm check-in…** rechecks current
+eligibility/capacity transactionally before recording arrival. **Reject entry…**
+records a gate rejection without changing registration approval or creating a
+parking session. Either decision accepts an optional comment and is audited;
+retries use idempotency keys. Employee access remains scoped to assigned buildings.
+
+Drivers retain their own vehicle/status view; staff or administrators confirm
+physical arrival. These controls record software decisions only. No camera or
+physical barrier is operated; camera recognition can supply the plate in a later
+hardware integration.
+
+Run retained verification:
+
+```powershell
+py scripts/test_phase34.py --password-only --test-name test_36 --test-name test_55
+py scripts/pnpm.py test
+py scripts/pnpm.py build
+```
+
+Gate/floor verification on 19 October 2026: retained password-mode run
+`d15dd848-6f74-4b2a-99e5-29443b0c7d9b` passed all five selected tests
+(84.317 seconds): role/location authorization, rollback and retry,
+check-in-versus-maintenance, full Chromium staff/admin gate journey and API gate
+status/decision validation. Browser checks include desktop/mobile layout,
+number-plate verification, optional comments, unknown-vehicle rejection and floor
+filtering. API checks cover disabled/pending/rejected/already-parked states,
+duplicate rejection retries and audited comments. Local arrival-to-driver update
+measured 0.890 seconds. All test records and realms are retained.
+
+
+### Vehicle register and readable building preview
+
+Both **Staff** and **Administrator** have a **Vehicle register** page. It loads
+building-scoped records without a search, with vehicle name (make/model), plate,
+owner name, type, colour and status. Summary counts include registered records,
+enabled, parked here, vehicle disabled, account disabled, pending and rejected.
+Status filters, plate/owner/vehicle-name search and pagination are available.
+Disabled vehicle history remains visible and is labelled. Records belong to this
+building through the owner's registration building or vehicle parking history;
+legacy unassigned registrations are included only when there is one building.
+Drivers cannot access the register. Gate and space notices include owner names
+alongside plates when a registered owner is known.
+
+Location preview shows building name, area, city, country and address/landmark.
+Admin **Location settings** uses these editable names instead of coordinate
+fields. **Use current location** requests browser permission, then calls
+BigDataCloud directly from that browser to suggest locality/city/country. Review
+the names and enter the building name/address/landmark before saving. It never
+geocodes saved or manually entered coordinates. Manual entry works when location
+permission, internet access or the provider is unavailable. The screen links to
+BigDataCloud's location policy and explains that the lookup sends the device's
+current position. Free client lookup is subject to its current-location-only,
+client-side fair use policy:
+https://www.bigdatacloud.com/docs/article/why-is-reverse-geocoding-api-free
+
+Browser tests intercept the external lookup with a labelled synthetic response;
+no synthetic GPS position is sent to the public provider. Real area suggestions
+depend on the network/provider and should be checked by the administrator.
+Migration 009 adds area/city/country without deleting data. Existing local setup:
+
+```powershell
+py scripts/migrate_access_location.py
+py scripts/docker_wsl.py compose build api
+py scripts/docker_wsl.py compose up -d --no-deps api
+py scripts/test_phase34.py --password-only --test-name test_36 --test-name test_54 --test-name test_56
+```
+
+Verified 19 October 2026: retained run
+`ce3711f2-733f-403e-8e23-5242c52ade26` passed three integration/browser tests
+(45.163 seconds), covering building-scoped register access/counts/status,
+owner/vehicle names, readable location preview, simulated browser area lookup,
+manual correction and coordinate-validation compatibility. The five source/replay
+tests and frontend/API production builds passed. Local main API readiness and
+frontend returned HTTP 200 after the additive migration and API update.
+
+
+### Single saved-location flow
+
+**Location settings** now shows one saved building/address card. **Set building
+location** or **Edit saved location** opens a focused picker with **Use current
+location**, **Enter address manually**, an address preview and editable building,
+area/city/country and entrance/landmark details. **Save location** waits for the
+write, reads the saved details back, closes the picker and updates the card.
+Cancel discards draft edits. Reopening/reloading displays persisted details.
+Choosing manual entry clears any previous device position on save; area names
+remain editable. Detection requests are ignored/cancelled when the picker closes.
+The location page no longer contains a second form to create another location.
+Existing locations, accounts and parking records are preserved.
+
+Saved-location and combined regression verification: retained run
+`aab29642-7151-456d-a355-b57ff436e933` passed seven integration/browser tests
+(71.347 seconds), including saved-address reload, preview, manual entry,
+cancelled drafts, mobile picker layout, approval/role/location boundaries, gate
+decisions and the vehicle register. External area lookup remained intercepted by
+the browser test. Frontend build, five source/replay checks and tracked-snapshot
+secret scan passed. The picker updates the current building; no extra creation
+form or location tabs are added.

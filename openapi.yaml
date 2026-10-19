@@ -322,6 +322,9 @@
                     },
                     "registrationKind": {
                       "type": "string"
+                    },
+                    "registrationLocationId": {
+                      "type": "string"
                     }
                   },
                   "required": [
@@ -711,6 +714,10 @@
                   "spaceId": {
                     "type": "string",
                     "format": "uuid"
+                  },
+                  "comment": {
+                    "type": "string",
+                    "maxLength": 500
                   }
                 },
                 "required": [
@@ -1243,6 +1250,9 @@
                           "nullable": true
                         }
                       }
+                    },
+                    "location": {
+                      "type": "object"
                     }
                   },
                   "required": [
@@ -1445,6 +1455,9 @@
                           "nullable": true
                         }
                       }
+                    },
+                    "location": {
+                      "type": "object"
                     }
                   },
                   "required": [
@@ -1927,6 +1940,44 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 500
+                  },
+                  "address": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "latitude": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "nullable": true
+                  },
+                  "longitude": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "nullable": true
+                  },
+                  "area": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "city": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "country": {
+                    "type": "string",
+                    "maxLength": 100
                   }
                 },
                 "required": [
@@ -3281,6 +3332,10 @@
                       "driver",
                       "employee"
                     ]
+                  },
+                  "locationId": {
+                    "type": "string",
+                    "format": "uuid"
                   }
                 }
               }
@@ -3291,7 +3346,7 @@
     },
     "/api/admin/locations/{id}/approvals": {
       "get": {
-        "summary": "List up to 100 pending registrations for this single operator; location administrator only.",
+        "summary": "List requests by status with building counts, optional search and pagination. Staff see driver requests only.",
         "security": [
           {
             "bearerAuth": []
@@ -3310,10 +3365,34 @@
                       "items": {
                         "type": "object"
                       }
+                    },
+                    "counts": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "pending": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "approved": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "rejected": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "pending",
+                        "approved",
+                        "rejected"
+                      ]
                     }
                   },
                   "required": [
-                    "requests"
+                    "requests",
+                    "counts"
                   ]
                 }
               }
@@ -3368,6 +3447,19 @@
             "schema": {
               "type": "string",
               "maxLength": 200
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "approved",
+                "rejected"
+              ],
+              "default": "pending"
             }
           }
         ]
@@ -3468,12 +3560,635 @@
                   "reason": {
                     "type": "string",
                     "maxLength": 500
+                  },
+                  "verificationConfirmed": {
+                    "type": "boolean"
                   }
                 }
               }
             }
           }
         }
+      }
+    },
+    "/api/me/registration-locations": {
+      "get": {
+        "summary": "Verified pending accounts may list building names to select their registration building; no occupancy or personal data.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "locations": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "name"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "locations"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/staff/locations/{id}/approvals": {
+      "get": {
+        "summary": "List requests by status with building counts, optional search and pagination. Staff see driver requests only.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "requests": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "counts": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "pending": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "approved": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "rejected": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "pending",
+                        "approved",
+                        "rejected"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "requests",
+                    "counts"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000,
+              "default": 0
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "description": "Case-insensitive name or email substring.",
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "approved",
+                "rejected"
+              ],
+              "default": "pending"
+            }
+          }
+        ]
+      },
+      "post": {
+        "summary": "Approve or reject a pending account; employee approval assigns the explicit location role.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "decision": {
+                      "type": "string",
+                      "enum": [
+                        "approved",
+                        "rejected"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "decision"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "userId",
+                  "decision",
+                  "reason"
+                ],
+                "properties": {
+                  "userId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "decision": {
+                    "type": "string",
+                    "enum": [
+                      "approved",
+                      "rejected"
+                    ]
+                  },
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "attendant",
+                      "operator_admin"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "verificationConfirmed": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "description": "Assigned staff may decide driver requests only. Approval requires verificationConfirmed=true. Employee and role grants are forbidden."
+      }
+    },
+    "/api/staff/locations/{id}/gate-check": {
+      "get": {
+        "summary": "Main gate exact-plate verification, including disabled/pending/rejected/already parked states and up to 500 compatible empty spaces.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "status",
+                    "canCheckIn",
+                    "vehicle",
+                    "spaces"
+                  ],
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "eligible",
+                        "not_registered",
+                        "vehicle_disabled",
+                        "account_disabled",
+                        "approval_pending",
+                        "registration_rejected",
+                        "already_parked"
+                      ]
+                    },
+                    "canCheckIn": {
+                      "type": "boolean"
+                    },
+                    "vehicle": {
+                      "type": "object",
+                      "nullable": true
+                    },
+                    "spaces": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 999999
+            }
+          },
+          {
+            "name": "jurisdiction",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "registration",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        ]
+      }
+    },
+    "/api/staff/locations/{id}/gate-decisions": {
+      "post": {
+        "summary": "Record a gate entry rejection. Comment optional. Requires assigned staff/admin role and an idempotency key.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "decision",
+                    "recorded"
+                  ],
+                  "properties": {
+                    "decision": {
+                      "type": "string",
+                      "enum": [
+                        "rejected"
+                      ]
+                    },
+                    "recorded": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "registration",
+                  "jurisdiction",
+                  "decision"
+                ],
+                "properties": {
+                  "registration": {
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  "jurisdiction": {
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  "decision": {
+                    "type": "string",
+                    "enum": [
+                      "rejected"
+                    ]
+                  },
+                  "comment": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/staff/locations/{id}/vehicle-register": {
+      "get": {
+        "summary": "Paginated building-scoped vehicle register with owner names, vehicle names, status filters and counts.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "vehicles",
+                    "counts"
+                  ],
+                  "properties": {
+                    "vehicles": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "counts": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string",
+              "default": "all",
+              "enum": [
+                "all",
+                "enabled",
+                "disabled",
+                "account_disabled",
+                "approval_pending",
+                "registration_rejected",
+                "parked"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            }
+          }
+        ]
       }
     }
   },

@@ -1,6 +1,7 @@
 #include "dashboard.h"
 #include <algorithm>
 #include <regex>
+#include <cmath>
 
 namespace parking {
 namespace {
@@ -16,6 +17,14 @@ Json::Value objects(const Rows &rows, std::initializer_list<const char *> fields
 std::string boundedNumber(std::string text, const char *error, size_t length=6) {
     if(text.empty()) return "0";
     if(text.size()>length || !std::all_of(text.begin(),text.end(),[](unsigned char c){return c>='0' && c<='9';})) throw ApiError(400,error);
+    return text;
+}
+std::string coordinate(const Json::Value &body,const char *key,double limit) {
+    if(!body.isMember(key) || body[key].isNull() || (body[key].isString() && body[key].asString().empty()))return "";
+    if(!body[key].isString() && !body[key].isNumeric())throw ApiError(400,"invalid_coordinates");
+    auto text=body[key].asString();size_t used=0;double value;
+    try{value=std::stod(text,&used);}catch(...){throw ApiError(400,"invalid_coordinates");}
+    if(used!=text.size() || !std::isfinite(value) || value < -limit || value > limit)throw ApiError(400,"invalid_coordinates");
     return text;
 }
 void record(Database &db,const Identity &actor,const std::string &action,const std::string &type,
@@ -65,7 +74,7 @@ Reply dashboard(Database &db,const Identity &actor,const drogon::HttpRequestPtr 
         db.query("INSERT INTO staff_assignments(user_id,location_id,role) VALUES($1::uuid,$2::uuid,'operator_admin')",{actor.user,id});
         record(db,actor,"location_created","location",id,requestId,body); db.commit(); result["id"]=id; return {201,result};
     }
-    if(!std::regex_match(path,match,std::regex("/api/(locations|staff/locations|admin/locations)/([^/]+)/(dashboard|events|vehicles|drivers|configuration|zones|spaces|audit|staff-list|staff-accounts|users)"))) throw ApiError(404,"not_found");
+    if(!std::regex_match(path,match,std::regex("/api/(locations|staff/locations|admin/locations)/([^/]+)/(dashboard|events|vehicles|vehicle-register|gate-check|gate-decisions|drivers|configuration|zones|spaces|audit|staff-list|staff-accounts|users)"))) throw ApiError(404,"not_found");
     auto scope=match[1].str(), location=match[2].str(),operation=match[3].str(); uuid(location);
     if(!db.query("SELECT 1 FROM locations WHERE id=$1::uuid",{location}).size()) throw ApiError(404,"location_not_found");
     bool staff=scope!="locations", admin=scope=="admin/locations";
@@ -79,6 +88,7 @@ Reply dashboard(Database &db,const Identity &actor,const drogon::HttpRequestPtr 
         auto cursor=db.query("SELECT coalesce(max(id),0)::text AS cursor FROM delivery_events").get(0,"cursor");
         result["cursor"]=cursor;
         result["locationId"]=location;
+        if(operation=="dashboard")result["location"]=objects(db.query("SELECT name,address,area,city,country FROM locations WHERE id=$1::uuid",{location}),{"name","address","area","city","country"})[0];
         result["timestamp"]=db.query("SELECT now()::text AS time").get(0,"time");
         if(operation=="events") {
             auto after=boundedNumber(req->getParameter("after"),"invalid_cursor",18);
@@ -113,19 +123,67 @@ Reply dashboard(Database &db,const Identity &actor,const drogon::HttpRequestPtr 
         }
         db.commit(); return {200,result};
     }
+    if(operation=="vehicle-register" && scope=="staff/locations" && req->method()==drogon::Get) {
+        auto search=req->getParameter("search"),state=req->getParameter("status"),offset=boundedNumber(req->getParameter("offset"),"invalid_offset");if(state.empty())state="all";
+        if(search.size()>200 || std::stoul(offset)>100000)throw ApiError(400,"invalid_register_filter");
+        if(state!="all" && state!="enabled" && state!="disabled" && state!="account_disabled" && state!="approval_pending" && state!="registration_rejected" && state!="parked")throw ApiError(400,"invalid_register_status");
+        const std::string source="WITH registry AS (SELECT v.id::text,v.normalized_registration,v.registration_jurisdiction,v.vehicle_type,v.make,v.model,v.color,u.display_name AS owner_name,concat_ws(' ',NULLIF(v.make,''),NULLIF(v.model,'')) AS vehicle_name,CASE WHEN v.disabled_at IS NOT NULL THEN 'disabled' WHEN u.status!='enabled' THEN 'account_disabled' WHEN u.approval_status='rejected' THEN 'registration_rejected' WHEN u.approval_status!='approved' THEN 'approval_pending' WHEN EXISTS(SELECT 1 FROM parking_sessions p JOIN spaces s ON s.id=p.space_id WHERE p.vehicle_id=v.id AND p.checked_out_at IS NULL AND s.location_id=$1::uuid) THEN 'parked' ELSE 'enabled' END AS status FROM vehicles v JOIN users u ON u.id=v.user_id WHERE u.registration_location_id=$1::uuid OR (u.registration_location_id IS NULL AND (SELECT count(*) FROM locations)=1) OR EXISTS(SELECT 1 FROM parking_sessions p JOIN spaces s ON s.id=p.space_id WHERE p.vehicle_id=v.id AND s.location_id=$1::uuid)) ";
+        result["counts"]["total"]=0;for(auto key:{"enabled","disabled","account_disabled","approval_pending","registration_rejected","parked"})result["counts"][key]=0;
+        auto counts=db.query(source+"SELECT status,count(*)::text AS total FROM registry GROUP BY status",{location});
+        for(int i=0;i<counts.size();++i){int count=std::stoi(counts.get(i,"total"));result["counts"][counts.get(i,"status")]=count;result["counts"]["total"]=result["counts"]["total"].asInt()+count;}
+        result["vehicles"]=objects(db.query(source+"SELECT * FROM registry WHERE ($2='all' OR status=$2) AND ($3='' OR strpos(lower(concat_ws(' ',normalized_registration,owner_name,vehicle_name)),lower($3))>0) ORDER BY owner_name,normalized_registration,id LIMIT 100 OFFSET $4::integer",{location,state,search,offset}),{"id","normalized_registration","registration_jurisdiction","vehicle_type","make","model","color","owner_name","vehicle_name","status"});
+        record(db,actor,"vehicle_register_read","location",location,requestId);db.commit();return {200,result};
+    }
+    if(operation=="gate-check" && scope=="staff/locations" && req->method()==drogon::Get) {
+        auto plate=req->getParameter("registration"),jurisdiction=req->getParameter("jurisdiction");
+        if(plate.empty() || plate.size()>64 || jurisdiction.empty() || jurisdiction.size()>64)throw ApiError(400,"exact_registration_and_jurisdiction_required");
+        auto rows=db.query("SELECT v.id::text,v.normalized_registration,v.registration_jurisdiction,v.vehicle_type,v.make,v.model,v.color,v.disabled_at::text,u.display_name,u.email,u.status AS account_status,u.approval_status,(SELECT id::text FROM parking_sessions WHERE user_id=u.id AND checked_out_at IS NULL LIMIT 1) AS active_session_id FROM vehicles v JOIN users u ON u.id=v.user_id WHERE v.normalized_registration=normalize_registration($1) AND v.registration_jurisdiction=upper(btrim($2)) ORDER BY (v.disabled_at IS NULL) DESC,v.created_at DESC,v.id LIMIT 1",{plate,jurisdiction});
+        std::string state="not_registered";
+        if(rows.size()) {
+            state=!rows.null(0,"disabled_at")?"vehicle_disabled":rows.get(0,"account_status")!="enabled"?"account_disabled":rows.get(0,"approval_status")=="rejected"?"registration_rejected":rows.get(0,"approval_status")!="approved"?"approval_pending":!rows.null(0,"active_session_id")?"already_parked":"eligible";
+            result["vehicle"]=objects(rows,{"id","normalized_registration","registration_jurisdiction","vehicle_type","make","model","color","display_name","email"})[0];
+        } else result["vehicle"]=Json::Value();
+        result["status"]=state;result["canCheckIn"]=state=="eligible";
+        result["spaces"]=Json::Value(Json::arrayValue);
+        if(state=="eligible")result["spaces"]=objects(db.query("SELECT s.id::text,s.label,s.zone_id::text,z.label AS floor FROM spaces s LEFT JOIN zones z ON z.id=s.zone_id WHERE s.location_id=$1::uuid AND s.operational_status='enabled' AND s.supported_vehicle_type=$2 AND NOT EXISTS(SELECT 1 FROM parking_sessions p WHERE p.space_id=s.id AND p.checked_out_at IS NULL) ORDER BY z.label NULLS LAST,s.label,s.id LIMIT 500",{location,rows.get(0,"vehicle_type")}),{"id","label","zone_id","floor"});
+        record(db,actor,"gate_vehicle_checked","location",location,requestId);
+        db.commit();return {200,result};
+    }
+    if(operation=="gate-decisions" && scope=="staff/locations" && req->method()==drogon::Post) {
+        auto body=parseJson(std::string(req->body()));fields(body,{"registration","jurisdiction","decision","comment"});
+        required(body,"registration",64);required(body,"jurisdiction",64);
+        if(required(body,"decision",20)!="rejected")throw ApiError(400,"use_check_in_for_entry_approval");
+        if(body.isMember("comment") && (!body["comment"].isString() || body["comment"].asString().size()>500))throw ApiError(400,"invalid_comment");
+        auto key=req->getHeader("idempotency-key");if(key.empty() || key.size()>200 || !std::all_of(key.begin(),key.end(),[](unsigned char c){return c>=33 && c<=126;}))throw ApiError(400,"idempotency_key_required");
+        auto operationKey="gate-rejection:"+location,hash=sha256(jsonString(body));
+        auto stored=db.query("SELECT request_hash,result::text FROM idempotency_records WHERE actor_id=$1::uuid AND operation=$2 AND key=$3",{actor.user,operationKey,key});
+        if(stored.size()){if(stored.get(0,"request_hash")!=hash)throw ApiError(409,"idempotency_key_reused");result=parseJson(stored.get(0,"result"));db.commit();return {200,result};}
+        record(db,actor,"gate_entry_rejected","location",location,requestId,body);
+        result["decision"]="rejected";result["recorded"]=true;
+        db.query("INSERT INTO idempotency_records(actor_id,operation,key,request_hash,result,expires_at) VALUES($1::uuid,$2,$3,$4,$5::jsonb,now()+interval '24 hours')",{actor.user,operationKey,key,hash,jsonString(result)});
+        db.commit();return {200,result};
+    }
     if(operation=="vehicles" && scope=="staff/locations" && req->method()==drogon::Get) {
         auto plate=req->getParameter("registration"),jurisdiction=req->getParameter("jurisdiction");
         if(plate.empty() || plate.size()>64 || jurisdiction.empty() || jurisdiction.size()>64) throw ApiError(400,"exact_registration_and_jurisdiction_required");
         result["vehicles"]=objects(db.query("SELECT v.id::text,v.normalized_registration,v.registration_jurisdiction,v.vehicle_type,v.make,v.model,v.color,u.display_name,u.email FROM vehicles v JOIN users u ON u.id=v.user_id WHERE v.disabled_at IS NULL AND u.status='enabled' AND v.normalized_registration=normalize_registration($1) AND v.registration_jurisdiction=upper(btrim($2)) LIMIT 1",{plate,jurisdiction}),{"id","normalized_registration","registration_jurisdiction","vehicle_type","make","model","color","display_name","email"});
         record(db,actor,"vehicle_lookup","location",location,requestId);
     } else if(admin && operation=="configuration" && req->method()==drogon::Get) {
-        result["location"]=objects(db.query("SELECT id::text,name,timezone FROM locations WHERE id=$1::uuid",{location}),{"id","name","timezone"})[0];
+        result["location"]=objects(db.query("SELECT id::text,name,timezone,address,area,city,country,latitude::text,longitude::text FROM locations WHERE id=$1::uuid",{location}),{"id","name","timezone","address","area","city","country","latitude","longitude"})[0];
         result["zones"]=objects(db.query("SELECT id::text,label FROM zones WHERE location_id=$1::uuid ORDER BY label LIMIT 500",{location}),{"id","label"});
     } else if(admin && operation=="configuration" && req->method()==drogon::Put) {
-        auto body=parseJson(std::string(req->body())); fields(body,{"name","timezone","reason"}); required(body,"reason",500);
+        auto body=parseJson(std::string(req->body())); fields(body,{"name","timezone","reason","address","area","city","country","latitude","longitude"}); required(body,"reason",500);
         auto timezone=required(body,"timezone",100);
         if(!db.query("SELECT 1 FROM pg_timezone_names WHERE name=$1",{timezone}).size()) throw ApiError(400,"invalid_timezone");
-        db.query("UPDATE locations SET name=$2,timezone=$3,updated_at=now() WHERE id=$1::uuid",{location,required(body,"name",200),timezone});
+        auto latitude=coordinate(body,"latitude",90),longitude=coordinate(body,"longitude",180);
+        if(latitude.empty()!=longitude.empty())throw ApiError(400,"coordinates_pair_required");
+        std::string address;
+        if(body.isMember("address")){if(!body["address"].isString() || body["address"].asString().size()>500)throw ApiError(400,"invalid_address");address=body["address"].asString();}
+        db.query("UPDATE locations SET name=$2,timezone=$3,address=CASE WHEN $7='true' THEN $4 ELSE address END,latitude=CASE WHEN $8='true' THEN NULLIF($5,'')::double precision ELSE latitude END,longitude=CASE WHEN $8='true' THEN NULLIF($6,'')::double precision ELSE longitude END,updated_at=now() WHERE id=$1::uuid",{location,required(body,"name",200),timezone,address,latitude,longitude,body.isMember("address")?"true":"false",(body.isMember("latitude") || body.isMember("longitude"))?"true":"false"});
+        for(const auto &field:std::vector<std::string>{"area","city","country"})if(body.isMember(field)){
+            if(!body[field].isString() || body[field].asString().size()>(field=="country"?100:200))throw ApiError(400,"invalid_location_details");
+            db.query("UPDATE locations SET "+field+"=$2 WHERE id=$1::uuid",{location,body[field].asString()});
+        }
         record(db,actor,"location_updated","location",location,requestId,body); result["saved"]=true;
     } else if(admin && operation=="zones" && req->method()==drogon::Post) {
         auto body=parseJson(std::string(req->body())); fields(body,{"label","reason"}); required(body,"reason",500);

@@ -4,6 +4,7 @@ import urllib.parse
 from identity_admin import IDENTITY, admin_token, environment, request, wait_identity
 from parking_tools import ROOT, cli
 from driver_identity_service import configure_driver_service
+from password_sso import ensure_password_sso
 
 
 def main():
@@ -27,7 +28,7 @@ def main():
             execution = next(item for item in executions if item.get('providerId') == provider)
             request(base + '/authentication/flows/parking-reset/executions', {'id': execution['id'], 'requirement': 'REQUIRED'}, token, method='PUT')
     require_mfa=environment().get('REQUIRE_STAFF_MFA','false')!='false'
-    request(base, {'resetCredentialsFlow': 'parking-reset','browserFlow':'parking-mfa' if require_mfa else 'parking-password'}, token, method='PUT')
+    request(base, {'resetCredentialsFlow': 'parking-reset','browserFlow':'parking-mfa' if require_mfa else ensure_password_sso()}, token, method='PUT')
     for client in realm['clients']:
         if 'secret' in client:
             client['secret'] = environment()['OIDC_DRIVER_ADMIN_SECRET' if client['clientId']=='parking-driver-provisioner' else 'OIDC_CLIENT_SECRET']

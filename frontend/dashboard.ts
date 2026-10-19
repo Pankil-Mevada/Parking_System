@@ -2,7 +2,7 @@ import {changedResources, type Change} from './realtime';
 export type Api = (path: string, method?: string, body?: unknown, key?: string) => Promise<Record<string, unknown>>;
 type Row = Record<string, string | null>;
 type Assignment = {locationId: string; role: string};
-type Snapshot = {cursor: string; timestamp: string; floors: Row[]; spaces?: Row[]; unassigned: {total: string}};
+type Snapshot = {cursor: string; timestamp: string; floors: Row[]; location?:Row; spaces?: Row[]; unassigned: {total: string}};
 const section = document.createElement('section');
 section.id = 'parking-workspace';section.className = 'parking-workspace'; section.hidden = true;
 document.querySelector('#account-section')!.after(section);
@@ -39,11 +39,11 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
   const accountMessage=document.getElementById('account-message')!;
   const signout=document.getElementById('account-logout')!;
   const accountStrip=node('div','','workspace-account');accountStrip.append(accountMessage,signout);
-  let activeView='dashboard',navigationKey='';
+  let activeView='dashboard',navigationKey='',previousSession:string|null|undefined;
   const views: Record<string,[string,string,string][]> = {
     driver:[['dashboard','My dashboard','Your current parking session and the next step.'],['availability','Find parking','Choose a location and compare available spaces by floor.'],['vehicle','My vehicle','Register or replace the one vehicle linked to your account.'],['history','My parking history','Review your own arrivals and departures.']],
-    attendant:[['occupancy','Space occupancy','View parking spaces and location availability.'],['drivers','Driver accounts & vehicles','Create driver accounts and register or manage their vehicles.'],['checkin','Check in a vehicle','Find a registered vehicle and confirm its physical arrival.'],['checkout','Check out a vehicle','Select an occupied space and confirm departure.']],
-    operator_admin:[['approvals','Account approvals','Approve driver and employee registration requests.'],['overview','Location overview','Monitor capacity and occupancy at this location.'],['spaces','Floors & spaces','Configure floors, numbered spaces, compatibility and maintenance.'],['locations','Location settings','Edit this location or create another location.'],['drivers','Drivers','Find driver accounts and manage their vehicles. Drivers cannot be assigned staff roles.'],['people','Staff accounts','Approve separate employee accounts and assign their location roles.'],['audit','Audit records','Search recorded actions at this location.'],['operations','Check-in / check-out','Perform authorized staff parking operations.']],
+    attendant:[['vehicles','Vehicle register','Review this building’s registered vehicles, owners and status.'],['approvals','Driver approvals','Verify driver registration requests and review previous decisions.'],['occupancy','Space occupancy','View parking spaces and location availability.'],['drivers','Driver accounts & vehicles','Create driver accounts and register or manage their vehicles.'],['checkin','Check in a vehicle','Verify a number plate at the main gate, then approve check-in or reject entry.'],['checkout','Check out a vehicle','Select an occupied space and confirm departure.']],
+    operator_admin:[['vehicles','Vehicle register','Review this building’s registered vehicles, owners and status.'],['approvals','Account approvals','Approve driver and employee registration requests.'],['overview','Location overview','Monitor capacity and occupancy at this location.'],['spaces','Floors & spaces','Configure floors, numbered spaces, compatibility and maintenance.'],['locations','Location settings','Manage your saved building address and entrance details.'],['drivers','Drivers','Find driver accounts and manage their vehicles. Drivers cannot be assigned staff roles.'],['people','Staff accounts','Approve separate employee accounts and assign their location roles.'],['audit','Audit records','Search recorded actions at this location.'],['operations','Check-in / check-out','Perform authorized staff parking operations.']],
   };
   const controls = node('div', '', 'workspace-controls');
   const location = node('select'); location.setAttribute('aria-label', 'Parking location');
@@ -54,13 +54,16 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
   const floors = node('div', '', 'floor-grid'), spaces = node('div', '', 'space-grid');
   const session = node('div', '', 'session-panel'), history = node('div'), admin = node('div', '', 'admin-panel');
   const staff = node('div', '', 'staff-panel');
+  const approvals=node('div','','approval-panel');const registry=node('div','','vehicle-register');const locationPreview=node('article','','location-preview');
+  const notifications=node('div','','parking-notifications');notifications.setAttribute('role','log');notifications.setAttribute('aria-live','polite');
+  function notify(text:string):void {notifications.prepend(node('p',text));while(notifications.children.length>3)notifications.lastChild!.remove();}
   const pages = node('div', '', 'workspace-controls');
   const previous = button('Previous spaces', () => {offset = Math.max(0, offset - 100); void refresh();});
   const next = button('Next spaces', () => {offset += 100; void refresh();}); pages.append(previous, next);
   const filters=node('div','','workspace-controls space-filters');filters.append(floor,search);
-  function labeled(text:string,field:HTMLElement):HTMLLabelElement {const label=node('label',text);label.append(field);return label;}
+  function labeled(text:string,field:HTMLElement):HTMLLabelElement {const label=node('label',text);field.setAttribute('aria-label',text);if(field instanceof HTMLInputElement && field.type==='checkbox')label.className='verification-label';label.append(field);return label;}
   controls.append(labeled('Parking location',location),labeled('Switch workspace',role),button('Refresh now', () => {void loadLocations().catch(fail);}));
-  section.replaceChildren(badge,title,description,accountStrip,controls,status,filters,floors,session,staff,spaces,pages,history,admin,account); section.hidden = false;
+  section.replaceChildren(badge,title,description,accountStrip,controls,status,notifications,locationPreview,filters,floors,session,approvals,registry,staff,spaces,pages,history,admin,account); section.hidden = false;
   for(const panel of publicSections)panel.hidden=true;
   document.body.classList.add('authenticated-workspace');
   const topbarTitle=document.querySelector<HTMLElement>('.topbar strong')!;
@@ -71,7 +74,7 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
       badge.textContent='Pending staff approval';title.textContent='Waiting for administrator approval';
       description.textContent='Your employee account is registered. An administrator must approve and assign your location access before you can work.';
       topbarTitle.textContent='Pending approval';publicLabel.textContent='Pending staff approval';
-      for(const panel of [account,session,history,floors,spaces,pages,filters,staff,admin])panel.hidden=true;
+      for(const panel of [account,session,history,floors,spaces,pages,filters,staff,admin,approvals,registry,locationPreview])panel.hidden=true;
       navigation.replaceChildren(node('span','Pending approval','nav-item active'));
       navigationKey='pending';return;
     }
@@ -82,10 +85,12 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
     const roleName=workspace==='operator_admin'?'Administrator':workspace==='attendant'?'Staff':'Driver';
     section.dataset.role=workspace;badge.textContent=`${roleName} workspace`;title.textContent=selected[1];description.textContent=selected[2];
     topbarTitle.textContent=selected[1];publicLabel.textContent=`${roleName} workspace`;
+    registry.hidden=activeView!=='vehicles' || workspace==='driver';locationPreview.hidden=!['availability','overview','occupancy'].includes(activeView);
+    approvals.hidden=activeView!=='approvals' || workspace==='driver';
     account.hidden=activeView!=='vehicle';session.hidden=activeView!=='dashboard';history.hidden=activeView!=='history';
     floors.hidden=!['availability','occupancy','overview','spaces'].includes(activeView);
     const showSpaces=['occupancy','checkout','spaces','operations'].includes(activeView) && workspace!=='driver';
-    spaces.hidden=pages.hidden=!showSpaces;filters.hidden=!showSpaces;
+    spaces.hidden=pages.hidden=!showSpaces;filters.hidden=!showSpaces && !['availability','overview'].includes(activeView);search.hidden=!showSpaces;
     staff.hidden=!['checkin','operations','drivers'].includes(activeView) || workspace==='driver';
     if(activeView==='drivers' && workspace!=='attendant')staff.hidden=true;
     for(const child of staff.children)if(child instanceof HTMLElement)child.hidden=child.dataset.view!==activeView && !(activeView==='operations' && child.dataset.view==='checkin');
@@ -103,7 +108,7 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
     const security=node('a','Account security','nav-item');security.href='http://127.0.0.1:8180/realms/parking/account/#/security/signingin';security.target='_blank';security.rel='noopener';navigation.append(security);
   }
   function navigate(view:string,replace=false):void {
-    activeView=view;applyView();renderSpaces();
+    activeView=view;applyView();renderSpaces();if(view==='vehicles')void buildRegistry().catch(fail);
     window.history[replace?'replaceState':'pushState'](null,'',`#workspace/${role.value}/${activeView}`);
     title.tabIndex=-1;title.focus({preventScroll:true});section.scrollIntoView({block:'start'});
   }
@@ -141,7 +146,7 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
     view.addEventListener('submit', event => {
       event.preventDefault(); save.disabled = true; feedback.textContent = 'Waiting for server confirmation…';
       void submit(Object.fromEntries(new FormData(view)) as Record<string, string>).then(() => {
-        if (!stopped) feedback.textContent = 'Saved by the server.';
+        if (!stopped) feedback.textContent = view.dataset.successMessage ?? 'Saved by the server.';
       }).catch(error => {feedback.textContent = String(error);}).finally(() => {save.disabled = false;});
     }); return view;
   }
@@ -155,6 +160,17 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
     dialog.append(node('h2', 'Confirm action'), node('p', text), feedback, commit, button('Cancel', () => dialog.close()));
     dialog.addEventListener('close', () => dialog.remove()); section.append(dialog); dialog.showModal();
   }
+  function renderFloors():void {
+    floors.replaceChildren();if(!snapshot)return;
+    const rows=snapshot.floors.filter(item=>floor.value==='all' || item.id===floor.value);
+    floors.append(node('h3',floor.value==='all'?`${rows.length} floors / zones`:'Selected floor'));
+    for(const item of rows){const card=node('article','','floor-card'),icon=node('span','🏢','floor-sticker');icon.setAttribute('aria-hidden','true');
+      card.append(icon,node('h3',item.label!),node('p',`${item.available} available · ${item.occupied} occupied`),node('p',`${item.out_of_service} out of service · ${item.capacity} operational`));
+      card.append(button(floor.value===item.id?'Show all floors':'Select this floor',()=>{floor.value=floor.value===item.id?'all':item.id!;renderFloors();renderSpaces();}));floors.append(card);
+    }
+    if(Number(snapshot.unassigned.total) && ['all','unassigned'].includes(floor.value))floors.append(node('p',`${snapshot.unassigned.total} spaces have no assigned floor.`));
+    if(!rows.length && floor.value!=='unassigned')floors.append(node('p','No floors configured at this location yet.'));
+  }
   function renderSpaces(): void {
     spaces.replaceChildren();
     if (!snapshot?.spaces) return;
@@ -164,7 +180,8 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
       const occupied = Boolean(item.session_id), maintenance = item.operational_status !== 'enabled';
       const card = node('article', '', `space-card ${occupied ? 'occupied' : maintenance ? 'maintenance' : 'empty'}`);
       const floorName = snapshot.floors.find(f => f.id === item.zone_id)?.label ?? 'Unassigned floor';
-      card.append(node('h3', `${floorName} · ${item.label}`), node('strong', occupied ? '● Occupied' : maintenance ? '⊘ Out of service' : '○ Empty'), node('p', `Compatible: ${item.supported_vehicle_type}`));
+      const sticker=node('span',maintenance?'🛠':occupied?'🚘':'🅿','parking-sticker');sticker.setAttribute('aria-hidden','true');card.append(sticker);
+      card.append(node('h3', `${floorName} · ${item.label}`), node('strong', occupied ? '● Occupied' : maintenance ? '⊘ Out of service' : '○ Available'), node('p', `Compatible: ${item.supported_vehicle_type}`));
       if (occupied) {
         card.append(node('p', `${item.registration_snapshot} · ${item.vehicle_type ?? ''} · ${item.color ?? ''}`), node('p', `${item.display_name ?? ''} · ${item.email ?? ''}`), node('p', `Arrival: ${date(item.checked_in_at)}`));
         if(role.value==='attendant' || activeView==='operations')card.append(button('Check out', () => {void confirmAction(`Confirm departure of ${item.registration_snapshot} from ${item.label}?`, async () => {
@@ -196,6 +213,9 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
   async function driver(): Promise<void> {
     const data = await api(`/api/me/dashboard?offset=${historyOffset}`); if (stopped) return;
     const current = data.current as Row | null;
+    const sessionKey=current?.id ?? (current?`${current.location}/${current.space}/${current.checked_in_at}`:null);
+    if(previousSession!==undefined && previousSession!==sessionKey && role.value==='driver')notify(current?`Arrival confirmed: ${current.location}, space ${current.space}.`:'Departure confirmed. Your parking history has been updated.');
+    previousSession=sessionKey;
     session.replaceChildren(node('h3', 'Your current parking session'));
     if (current) {
       const arrival = new Date(current.checked_in_at!).getTime();
@@ -214,26 +234,23 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
     try {
       const data = await api(`/api/${scope}/${location.value}/dashboard?offset=${offset}`) as unknown as Snapshot;
       if (stopped || generation !== epoch) return;
+      if(snapshot?.spaces && data.spaces)for(const current of data.spaces){const before=snapshot.spaces.find(item=>item.id===current.id);if(before && (before.session_id!==current.session_id || before.operational_status!==current.operational_status))notify(`Space ${current.label}: ${current.session_id?'Occupied':current.operational_status==='enabled'?'Available':'Out of service'}${(current.display_name || before.display_name)?` · ${current.display_name || before.display_name} · ${current.registration_snapshot || before.registration_snapshot || ''}`:''}.`);}
+      locationPreview.replaceChildren(node('span','📍','floor-sticker'),node('h2',data.location?.name ?? location.selectedOptions[0]?.text ?? 'Building'),node('p',[data.location?.area,data.location?.city,data.location?.country].filter(Boolean).join(' · ') || 'Area details have not been added yet.'),node('p',data.location?.address || 'Ask your administrator to add the building address and landmark.'));
       snapshot = data; cursor = data.cursor; lastSuccess = Date.now();
       for (const space of data.spaces ?? []) if(space.id && space.version) versions.set(space.id,BigInt(space.version));
       const selected = floor.value; floor.replaceChildren(new Option('All floors', 'all'));
-      floors.replaceChildren(node('h3', `${data.floors.length} floors / zones`));
-      for (const item of data.floors) {
-        floor.append(new Option(item.label!, item.id!));
-        const card = node('article', '', 'floor-card');
-        card.append(node('h3', item.label!), node('p', `${item.available} available · ${item.occupied} occupied`), node('p', `${item.out_of_service} out of service · ${item.capacity} operational`)); floors.append(card);
-      }
-      if (Number(data.unassigned.total)) {floor.append(new Option('Unassigned floor', 'unassigned')); floors.append(node('p', `${data.unassigned.total} spaces have no assigned floor.`));}
+      for(const item of data.floors)floor.append(new Option(item.label!,item.id!));
+      if(Number(data.unassigned.total))floor.append(new Option('Unassigned floor','unassigned'));
       if ([...floor.options].some(item => item.value === selected)) floor.value = selected;
       spaces.hidden = pages.hidden = staff.hidden = scope === 'locations';
-      renderSpaces(); await driver();
+      renderFloors();renderSpaces(); await driver();
       applyView();
       status.textContent = `Confirmed snapshot · Updated ${date(data.timestamp)}. Connecting for changes…`;
       window.dispatchEvent(new Event('parking-updated'));
     } catch (error) {
       if (generation === epoch && !stopped) {
         // Remove sensitive detail on any failed authorization or unavailable server.
-        spaces.replaceChildren(); staff.hidden = true; admin.replaceChildren(); session.replaceChildren(); history.replaceChildren(); snapshot = undefined;
+        spaces.replaceChildren(); staff.hidden = true; admin.replaceChildren(); session.replaceChildren(); history.replaceChildren(); snapshot = undefined;approvals.replaceChildren();registry.replaceChildren();locationPreview.replaceChildren();
         fail(error);
       }
     }
@@ -256,7 +273,7 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
       // not overwrite a newer snapshot. Refresh always reads authoritative state.
       const recovering=failures>0;
       if (recovering || !snapshot || data.reset || (BigInt(data.cursor) >= BigInt(cursor) && changedResources(data.events,cursor,versions))) await refresh();
-      if(recovering && snapshot){await buildStaff();await buildAdmin();}
+      if(recovering && snapshot){await buildStaff();await buildAdmin();await buildApprovals();await buildRegistry();}
       if (BigInt(data.cursor) >= BigInt(cursor)) cursor = data.cursor;
       if(!snapshot) throw new Error('Snapshot unavailable');
       failures = 0; status.textContent = `Connected · Last confirmed snapshot ${date(snapshot.timestamp)}`;
@@ -265,7 +282,7 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
     } catch {
       if (!stopped && ticket === subscription) {
         failures++; status.textContent = 'Disconnected / stale · Reconnecting with backoff. Snapshot fallback runs every 15 seconds.';
-        spaces.replaceChildren(); admin.replaceChildren(); session.replaceChildren();history.replaceChildren();staff.hidden = true;
+        spaces.replaceChildren(); admin.replaceChildren();approvals.replaceChildren();registry.replaceChildren();locationPreview.replaceChildren(); session.replaceChildren();history.replaceChildren();staff.hidden = true;
         section.querySelectorAll('dialog').forEach(dialog=>dialog.close());
         if (Date.now() - lastSuccess > 15000) await refresh();
       }
@@ -275,23 +292,30 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
     staff.replaceChildren(); if (scope === 'locations') return;
     const ticket = subscription, selectedLocation = location.value;
     const lookup = form('Check in a registered vehicle', [['jurisdiction','Registration jurisdiction','e.g. IN-GJ'],['registration','Exact vehicle registration','e.g. GJ 01 AB 1234']], async body => {
-      const data = await api(`/api/staff/locations/${selectedLocation}/vehicles?jurisdiction=${encodeURIComponent(body.jurisdiction)}&registration=${encodeURIComponent(body.registration)}`);
-      if (stopped || ticket !== subscription) return;
-      const vehicles = data.vehicles as Row[]; const result = node('div');
-      if (!vehicles.length) result.append(node('p', 'No enabled vehicle matches. Ask the driver to register it first.'));
-      for (const vehicle of vehicles) {
-        result.append(node('p', `${vehicle.normalized_registration} · ${vehicle.display_name} · ${vehicle.vehicle_type} · ${vehicle.color ?? ''}`));
-        const options = node('select'); options.setAttribute('aria-label', 'Compatible empty space');
-        for (const space of snapshot?.spaces ?? []) if (!space.session_id && space.operational_status === 'enabled' && space.supported_vehicle_type === vehicle.vehicle_type) options.append(new Option(space.label!, space.id!));
-        const check = button('Confirm check-in…', () => {void confirmAction(`Confirm ${vehicle.normalized_registration} has physically arrived at ${options.selectedOptions[0]?.text}?`, async () => {
-          await mutate('/api/staff/check-ins','POST',{vehicleId:vehicle.id,spaceId:options.value},true); await refresh(); result.remove();
-        });},'primary-button'); check.disabled = !options.options.length;
-        result.append(options, check); if (!options.options.length) result.append(node('p', 'No compatible empty space on the current page. Change the space page and search again.'));
-      }
-      staff.querySelector('.lookup-results')?.remove(); result.className = 'lookup-results';result.dataset.view='checkin'; staff.append(result);
-    }); lookup.querySelector('button')!.textContent = 'Find vehicle';lookup.dataset.view='checkin'; staff.append(lookup);
+      staff.querySelector('.lookup-results')?.remove();
+      const data = await api(`/api/staff/locations/${selectedLocation}/gate-check?jurisdiction=${encodeURIComponent(body.jurisdiction)}&registration=${encodeURIComponent(body.registration)}`);
+      if (stopped || ticket !== subscription || !snapshot || failures>0) return;
+      const vehicle=data.vehicle as Row|null,result=node('div','','gate-review');result.dataset.status=String(data.status);
+      const labels:Record<string,string>={eligible:'Registered and enabled — entry can be approved',not_registered:'Vehicle is not registered',vehicle_disabled:'Vehicle registration is disabled',account_disabled:'Driver account is disabled',approval_pending:'Driver registration is waiting for approval',registration_rejected:'Driver registration was rejected',already_parked:'This driver already has an active parking session'};
+      result.append(node('h3',`Main gate verification · ${body.registration} (${body.jurisdiction})`),node('strong',labels[String(data.status)] ?? 'Check unavailable','gate-status'));
+      if(vehicle)result.append(node('p',`${vehicle.normalized_registration} · ${vehicle.display_name} · ${vehicle.vehicle_type} · ${vehicle.color || 'Color not provided'}`));
+      const comment=node('textarea');comment.maxLength=500;comment.rows=2;comment.placeholder='Optional reason or observation';result.append(labeled('Gate comment (optional)',comment));
+      const gateFloor=node('select');gateFloor.append(new Option('All floors','all'));for(const item of snapshot?.floors ?? [])gateFloor.append(new Option(item.label!,item.id!));
+      const available=data.spaces as Row[],options=node('select');options.setAttribute('aria-label','Compatible empty space');
+      if(available.some(item=>!item.zone_id))gateFloor.append(new Option('Unassigned floor','unassigned'));
+      function fillSpaces():void{options.replaceChildren();for(const space of available)if(gateFloor.value==='all' || (space.zone_id || 'unassigned')===gateFloor.value)options.append(new Option(`${space.floor || 'Unassigned floor'} · ${space.label}`,space.id!));check.disabled=!data.canCheckIn || !options.options.length;}
+      const check=button('Confirm check-in…',()=>{void confirmAction(`Approve entry and confirm ${vehicle?.normalized_registration} has arrived at ${options.selectedOptions[0]?.text}?`,async()=>{
+        await mutate('/api/staff/check-ins','POST',{vehicleId:vehicle!.id,spaceId:options.value,comment:comment.value},true);notify(`Entry approved for ${vehicle!.display_name} · ${vehicle!.normalized_registration}.`);result.remove();await refresh();
+      });},'primary-button');
+      if(data.canCheckIn){result.append(labeled('Check-in floor',gateFloor),labeled('Compatible empty space',options),node('p','Select a floor and an empty compatible space. Shows up to 500 available spaces. Availability may change before you confirm.'));gateFloor.addEventListener('change',fillSpaces);}
+      fillSpaces();result.append(check);
+      const reject=button('Reject entry…',()=>{void confirmAction(`Reject entry for ${body.registration}? No parking session will be created.`,async()=>{
+        await mutate(`/api/staff/locations/${selectedLocation}/gate-decisions`,'POST',{jurisdiction:body.jurisdiction,registration:body.registration,decision:'rejected',comment:comment.value},true);notify(`Entry rejected for ${vehicle?.display_name?vehicle.display_name+' · ':''}${body.registration}.`);result.replaceChildren(node('p','Entry rejection recorded. No parking session was created.'));
+      });});result.append(reject,node('p','Gate decisions do not open or close a physical barrier. Camera and barrier integration will be added later.'));
+      staff.querySelector('.lookup-results')?.remove(); result.classList.add('lookup-results');result.dataset.view='checkin'; staff.append(result);applyView();
+    }); lookup.querySelector('button')!.textContent = 'Find vehicle';lookup.dataset.view='checkin';lookup.dataset.successMessage='Vehicle status checked. Review the result below; entry is not confirmed yet.';lookup.insertBefore(node('p','Enter any arriving vehicle’s exact number plate and jurisdiction to check registration and entry eligibility.'),lookup.querySelector('label'));lookup.addEventListener('input',()=>staff.querySelector('.lookup-results')?.remove()); staff.append(lookup);
     const created=node('div','','staff-guide');created.dataset.view='drivers';
-    created.append(node('h3','Driver onboarding'),node('p','1. Create the driver account with their email and name.'),node('p','2. The driver opens the Mailpit setup link to verify email and choose a password.'),node('p','3. Find the driver below and save their vehicle. Then confirm arrival on Check in a vehicle.'));
+    created.append(node('h3','Driver onboarding'),node('p','1. Create the driver account with their email and name.'),node('p','2. The driver opens the Mailpit setup link to verify email and choose a password.'),node('p','3. Verify and approve the request under Driver approvals. Then find the driver below, save their vehicle, and confirm arrival on Check in a vehicle.'));
     const create=form('Create a driver account',[['email','Driver email','driver@example.com'],['firstName','First name','First name'],['lastName','Last name','Last name']],async body=>{
       const result=await mutate(`/api/staff/locations/${selectedLocation}/drivers`,'POST',body,true);
       created.replaceChildren(node('p',result.setupEmailSent?'Driver account created. Open the setup email in local Mailpit to verify email and choose a password.':'Driver account saved, but setup email was not sent. Retry the same form to send the setup link.'));
@@ -324,37 +348,124 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
       if(!(data.users as Row[]).length)foundDriver.append(node('p','No driver account found. Create it above. Employee accounts are excluded.'));
     });find.dataset.view='drivers';find.querySelector('button')!.textContent='Find driver';staff.append(create,created,find,foundDriver);applyView();
   }
+  async function buildApprovals():Promise<void> {
+    approvals.replaceChildren();if(role.value==='driver')return;
+    const ticket=subscription,administrator=role.value==='operator_admin';
+    const base=`/api/${administrator?'admin':'staff'}/locations/${location.value}/approvals`;
+    let state='pending',page=0;
+    const query=node('input');query.maxLength=200;query.setAttribute('aria-label','Applicant name or email');query.placeholder='Search name or email';
+    async function show():Promise<void> {
+      const data=await api(`${base}?status=${state}&offset=${page}&search=${encodeURIComponent(query.value)}`);
+      if(stopped || ticket!==subscription)return;
+      approvals.replaceChildren(node('h2',administrator?'Account requests':'Driver registration requests'),node('p',administrator?'Review requests for this building. Every decision is recorded.':'Verify the driver’s identity and building access before approval. Employee requests are managed by administrators.'));
+      const tabs=node('div','','approval-tabs');tabs.setAttribute('role','group');tabs.setAttribute('aria-label','Request status');
+      const counts=data.counts as Record<string,number>;
+      for(const [key,label] of [['pending','Pending'],['approved','Approved'],['rejected','Rejected']]) {
+        const tab=button(`${label} (${counts[key] ?? 0})`,()=>{state=key;page=0;void show().catch(fail);});tab.setAttribute('aria-pressed',String(state===key));tabs.append(tab);
+      }
+      approvals.append(tabs,labeled('Applicant name or email',query),button('Find requests',()=>{page=0;void show().catch(fail);}));
+      const requests=data.requests as Row[];
+      for(const request of requests) {
+        const card=node('article','','request-card');card.append(node('h3',request.display_name ?? 'Driver'),node('p',request.email ?? ''),node('p',`${request.registration_kind} · ${state}`));
+        card.append(node('p',`Vehicle: ${request.vehicle_registration || 'Not registered yet'}`));if(request.decision_reason)card.append(node('p',`Decision reason: ${request.decision_reason}`));
+        if(state==='pending') {
+          const choice=node('select');choice.append(new Option('Select decision',''),new Option('Approve','approved'),new Option('Reject','rejected'));choice.required=true;
+          const employeeRole=node('select');employeeRole.append(new Option('Attendant','attendant'),new Option('Operator administrator','operator_admin'));
+          const verified=node('input');verified.type='checkbox';
+          const decision=form('Review request',[['reason','Reason','Record what you verified or why you rejected']],async body=>{
+            if(choice.value==='approved' && request.registration_kind==='driver' && !verified.checked)throw new Error('Confirm driver identity and building access verification first.');
+            await mutate(base,'POST',{...body,userId:request.id,decision:choice.value,...(request.registration_kind==='employee'?{role:employeeRole.value}:{}),verificationConfirmed:verified.checked});
+            notify(`Request ${choice.value} for ${request.display_name}.`);await show();
+          });
+          const submit=decision.querySelector('button')!;submit.textContent='Save decision';decision.insertBefore(labeled('Decision',choice),submit);
+          if(request.registration_kind==='employee')decision.insertBefore(labeled('Location role',employeeRole),submit);
+          else decision.insertBefore(labeled('I verified this driver’s identity and building access',verified),submit);
+          card.append(decision);
+        }
+        approvals.append(card);
+      }
+      if(!requests.length)approvals.append(node('p',`No ${state} requests match this building and search.`));
+      const prev=button('Previous requests',()=>{page=Math.max(0,page-100);void show().catch(fail);});prev.disabled=page===0;
+      const next=button('Next requests',()=>{page+=100;void show().catch(fail);});next.disabled=requests.length<100;approvals.append(prev,next);applyView();
+    }
+    await show();
+  }
+  async function buildRegistry():Promise<void> {
+    registry.replaceChildren();if(role.value==='driver')return;
+    const ticket=subscription,base=`/api/staff/locations/${location.value}/vehicle-register`;
+    let offset=0,loadEpoch=0;const search=node('input');search.maxLength=200;search.placeholder='Plate, vehicle name or owner';const filter=node('select');
+    const labels:Record<string,string>={all:'All vehicles',enabled:'Enabled',parked:'Parked here',disabled:'Vehicle disabled',account_disabled:'Owner account disabled',approval_pending:'Approval pending',registration_rejected:'Registration rejected'};
+    for(const [value,label] of Object.entries(labels))filter.append(new Option(label,value));
+    async function show():Promise<void>{const load=++loadEpoch;registry.replaceChildren(node('p','Loading vehicle records…'));const data=await api(`${base}?offset=${offset}&status=${filter.value}&search=${encodeURIComponent(search.value)}`).catch(error=>{if(!stopped && ticket===subscription && load===loadEpoch)registry.replaceChildren(node('p','Could not load vehicle records. Use Refresh now to retry.'));throw error;});if(stopped || ticket!==subscription || load!==loadEpoch || !snapshot)return;
+      const counts=data.counts as Record<string,number>,summary=node('div','','registry-counts');
+      for(const [key,label] of [['total','Registered records'],['enabled','Enabled'],['parked','Parked here'],['disabled','Disabled'],['approval_pending','Pending'],['registration_rejected','Rejected'],['account_disabled','Account disabled']])summary.append(node('div',`${counts[key] ?? 0} ${label}`));
+      registry.replaceChildren(node('h2','Registered vehicles'),node('p','This building’s vehicle records, including disabled registration history. Parked status refers to this building.'),summary);
+      const filters=node('div','','workspace-controls');filters.append(labeled('Search registered vehicles',search),labeled('Vehicle status',filter),button('Search vehicles',()=>{offset=0;void show().catch(fail);}));registry.append(filters);
+      const rows=(data.vehicles as Row[]).map(row=>({...row,vehicle_name:row.vehicle_name || row.vehicle_type,status:labels[row.status!] ?? row.status}));
+      registry.append(table(rows,[['vehicle_name','Vehicle name'],['normalized_registration','Number plate'],['owner_name','Owner name'],['vehicle_type','Type'],['color','Color'],['status','Status']]));
+      const prev=button('Previous vehicles',()=>{offset=Math.max(0,offset-100);void show().catch(fail);});prev.disabled=offset===0;
+      const next=button('Next vehicles',()=>{offset+=100;void show().catch(fail);});next.disabled=rows.length<100;registry.append(prev,next);applyView();
+    }
+    filter.addEventListener('change',()=>{offset=0;void show().catch(fail);});await show();
+  }
   async function buildAdmin(): Promise<void> {
-    admin.replaceChildren(); if (role.value !== 'operator_admin') return;
+    section.querySelectorAll<HTMLDialogElement>('.location-picker').forEach(dialog=>{if(dialog.open)dialog.close();dialog.remove();});admin.replaceChildren(); if (role.value !== 'operator_admin') return;
     const ticket = subscription;
     const base = `/api/admin/locations/${location.value}`;
-    const approvalPanel=node('div');approvalPanel.dataset.view='approvals';admin.append(approvalPanel);
-    let approvalOffset=0;const approvalSearch=node('input');approvalSearch.maxLength=200;approvalSearch.setAttribute('aria-label','Applicant name or email');
-    async function showApprovals():Promise<void> {
-      const data=await api(base+'/approvals?offset='+approvalOffset+'&search='+encodeURIComponent(approvalSearch.value));if(stopped || ticket!==subscription)return;
-      approvalPanel.replaceChildren(node('h2','Pending account approvals'),node('p','Approve drivers before parking access. Approve employees with a role for this location. Decisions require a reason and are audited.'));
-      const requests=data.requests as Row[];
-      approvalPanel.append(labeled('Applicant name or email',approvalSearch),button('Find requests',()=>{approvalOffset=0;void showApprovals().catch(fail);}));
-      for(const request of requests) {
-        const decision=form(`${request.display_name} · ${request.email} · ${request.registration_kind}`, [['reason','Reason','Explain the approval or rejection']],async body=>{
-          await mutate(base+'/approvals','POST',{userId:request.id,decision:choice.value,role:employeeRole.value,...body});await showApprovals();
-        });
-        const choice=node('select');choice.append(new Option('Select decision',''),new Option('Approve','approved'),new Option('Reject','rejected'));choice.required=true;
-        const employeeRole=node('select');employeeRole.append(new Option('Attendant','attendant'),new Option('Operator administrator','operator_admin'));
-        decision.insertBefore(labeled('Decision',choice),decision.querySelector('button'));
-        if(request.registration_kind==='employee')decision.insertBefore(labeled('Location role',employeeRole),decision.querySelector('button'));
-        decision.querySelector('button')!.textContent='Save decision';approvalPanel.append(decision);
-      }
-      if(!requests.length)approvalPanel.append(node('p','No pending account requests.'));
-      const previous=button('Previous requests',()=>{approvalOffset=Math.max(0,approvalOffset-100);void showApprovals().catch(fail);});previous.disabled=approvalOffset===0;
-      const next=button('Next requests',()=>{approvalOffset+=100;void showApprovals().catch(fail);});next.disabled=requests.length<100;approvalPanel.append(previous,next);
-    }
-    await showApprovals();
     const data = await api(base + '/configuration'); if (stopped || ticket !== subscription || role.value !== 'operator_admin') return;
     const config = data.location as Row;
-    admin.append(node('h2', 'Location administration'), node('p', 'Changes require a reason and are audited. Account status applies across this single operator.'));
-    admin.append(form('Location settings', [['name','Location name','Name',config.name!],['timezone','Display timezone','e.g. Asia/Kolkata',config.timezone!],['reason','Reason','Why are these settings changing?']], async body => {await mutate(base+'/configuration','PUT',body); await refresh();}));
-    admin.append(form('Create another location', [['name','Location name','e.g. City Centre'],['timezone','Timezone','e.g. Asia/Kolkata'],['reason','Reason','Reason for new location']], async body => {await mutate('/api/admin/locations','POST',body); await loadLocations();}));
+    const savedLocation=node('article','','saved-location-card');savedLocation.dataset.view='locations';
+    const locationDialog=node('dialog');locationDialog.className='location-picker';locationDialog.setAttribute('aria-label','Set building location');section.append(locationDialog);
+    function showSavedLocation():void {
+      const complete=Boolean(config.area || config.city || config.address);
+      savedLocation.replaceChildren(node('span','📍','location-pin'),node('span',complete?'Saved location':'Complete your building address','saved-location-label'),node('h2',config.name || 'Your building'),node('p',[config.area,config.city,config.country].filter(Boolean).join(' · ') || 'Add your area and city'),node('p',config.address || 'Add an address or landmark so staff can identify the entrance.'),node('p',config.latitude && config.longitude?'Building position saved':'You can use your current location or enter the address manually.','location-note'));
+      savedLocation.append(button(complete?'Edit saved location':'Set building location',openLocationPicker,'primary-button'));
+    }
+    function openLocationPicker():void {
+      ++pickerEpoch;coordinates={};geoStatus.textContent='';settings.querySelector<HTMLElement>('[role=status]')!.textContent='';
+      for(const name of ['name','area','city','country','address','timezone'])settings.querySelector<HTMLInputElement>(`[name=${name}]`)!.value=config[name] ?? '';
+      renderAddressPreview();locationDialog.showModal();
+    }
+    showSavedLocation();admin.append(savedLocation);
+    const settings=form('Location settings', [['name','Building / location name','e.g. Arjun Apartment',config.name!],['area','Area / neighbourhood','e.g. Navrangpura',config.area ?? ''],['city','City / town','e.g. Ahmedabad',config.city ?? ''],['country','Country','e.g. India',config.country ?? ''],['address','Address / landmark','Street, building entrance and nearby landmark',config.address ?? ''],['timezone','Display timezone','e.g. Asia/Kolkata',config.timezone!],], async body => {
+      await mutate(base+'/configuration','PUT',{...body,...coordinates,reason:'Administrator reviewed and saved building location'});
+      const saved=await api(base+'/configuration');if(stopped || ticket!==subscription)return;
+      Object.assign(config,saved.location as Row);showSavedLocation();if(location.selectedOptions[0])location.selectedOptions[0].text=config.name!;
+      locationDialog.close();notify('Building location settings saved.');await refresh();
+    });
+    let coordinates:Record<string,string>={};
+    for(const name of ['area','city','country','address'])settings.querySelector<HTMLInputElement>(`[name=${name}]`)!.required=false;
+    settings.querySelector<HTMLInputElement>('[name=address]')!.maxLength=500;
+    settings.querySelector<HTMLButtonElement>('button[type=submit]')!.textContent='Save location';settings.querySelector<HTMLInputElement>('[name=country]')!.maxLength=100;
+    const geoStatus=node('p');geoStatus.setAttribute('role','status');let detecting=false,pickerEpoch=0;let geoRequest:AbortController|undefined;
+    const detect=button('Use current location',()=>{
+      if(detecting)return;if(!navigator.geolocation){geoStatus.textContent='Location detection is unavailable. Enter the building details manually.';return;}
+      const detection=++pickerEpoch;detecting=true;detect.disabled=true;geoStatus.textContent='Finding your current area…';
+      navigator.geolocation.getCurrentPosition(position=>{void (async()=>{
+        if(stopped || ticket!==subscription || detection!==pickerEpoch || !locationDialog.open)return;
+        coordinates={latitude:String(position.coords.latitude),longitude:String(position.coords.longitude)};
+        try {
+          const url=new URL('https://api.bigdatacloud.net/data/reverse-geocode-client');url.search=new URLSearchParams({latitude:coordinates.latitude,longitude:coordinates.longitude,localityLanguage:'en'}).toString();
+          geoRequest=new AbortController();const response=await fetch(url,{credentials:'omit',referrerPolicy:'no-referrer',signal:AbortSignal.any([geoRequest.signal,AbortSignal.timeout(8000)])});if(!response.ok)throw new Error('Area lookup unavailable');const place=await response.json();
+          if(stopped || ticket!==subscription || detection!==pickerEpoch || !locationDialog.open)return;
+          if(!place.locality && !place.city)throw new Error('No readable area returned');
+          for(const [name,value] of [['area',place.locality || place.city],['city',place.city || place.principalSubdivision],['country',place.countryName]])if(typeof value==='string')settings.querySelector<HTMLInputElement>(`[name=${name}]`)!.value=value.slice(0,name==='country'?100:200);
+          renderAddressPreview();geoStatus.textContent='Current area found. Check the building name, area and city, then add the address or landmark and Save.';
+        }catch{if(detection!==pickerEpoch || !locationDialog.open)return;geoStatus.textContent='Your position was detected, but area lookup is unavailable. Enter the area, city and address manually.';}
+      })().finally(()=>{if(detection===pickerEpoch){detecting=false;detect.disabled=false;}});},()=>{if(detection!==pickerEpoch || !locationDialog.open)return;detecting=false;detect.disabled=false;geoStatus.textContent='Location permission was denied or unavailable. Enter building and area details manually.';},{timeout:10000,maximumAge:0});
+    });
+    locationDialog.addEventListener('close',()=>{++pickerEpoch;geoRequest?.abort();detecting=false;detect.disabled=false;});
+    detect.className='primary-button location-detect';
+    const pickerActions=node('div','','location-picker-actions');pickerActions.append(detect,button('Enter address manually',()=>{++pickerEpoch;geoRequest?.abort();detecting=false;detect.disabled=false;coordinates={latitude:'',longitude:''};geoStatus.textContent='Enter your building and area details below. The previous device position will be cleared when you save.';settings.querySelector<HTMLInputElement>('[name=name]')!.focus();}));
+    const addressPreview=node('article','','address-review');addressPreview.setAttribute('aria-label','Address preview');
+    function renderAddressPreview():void {
+      const value=(name:string)=>settings.querySelector<HTMLInputElement>(`[name=${name}]`)!.value.trim();
+      addressPreview.replaceChildren(node('span','📍','location-pin'),node('strong',value('name') || 'Your building'),node('p',[value('area'),value('city'),value('country')].filter(Boolean).join(' · ') || 'Detect your area or enter it below'),node('p',value('address') || 'Add the building entrance, street or nearby landmark'));
+    }
+    settings.addEventListener('input',renderAddressPreview);
+    const credit=node('p','Current-location lookup shares your device position with BigDataCloud to suggest area and city names. You can enter everything manually instead. ');credit.className='location-privacy';const policy=node('a','Lookup policy');policy.href='https://www.bigdatacloud.com/docs/article/why-is-reverse-geocoding-api-free';policy.target='_blank';policy.rel='noopener';credit.append(policy);
+    settings.prepend(node('p','Review the building name, area and entrance details before saving.'));settings.querySelector('h3')!.textContent='Building address';
+    locationDialog.append(node('h2','Set building location'),node('p','Use your current area, then add the building and entrance details.'),pickerActions,geoStatus,addressPreview,settings,credit,button('Cancel',()=>locationDialog.close()));
     async function syncZones(): Promise<void> {
       const updated=await api(base+'/configuration');if(stopped || ticket!==subscription)return;
       for(const select of admin.querySelectorAll<HTMLSelectElement>('[data-zone-picker]')) {
@@ -438,10 +549,12 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
     versions.clear();
     spaces.replaceChildren();session.replaceChildren();history.replaceChildren();
     scope = role.value === 'driver' ? 'locations' : 'staff/locations';
-    activeView=views[role.value][0][0];applyView();
-    staff.replaceChildren(); admin.replaceChildren(); await refresh();
+    activeView=role.value==='driver'?'dashboard':'approvals';applyView();
+    staff.replaceChildren(); admin.replaceChildren();approvals.replaceChildren();registry.replaceChildren();notifications.replaceChildren();snapshot=undefined; await refresh();
     if(stopped || ticket!==subscription)return;
     restoreRoute();applyView();renderSpaces();
+    await buildRegistry();
+    await buildApprovals();
     await buildStaff();
     if(stopped || ticket!==subscription)return;
     await buildAdmin();
@@ -461,8 +574,8 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
     assignments.splice(0,assignments.length,...profile.assignments as Assignment[]);
     me.accountType=profile.accountType;
     me.staffMfaRequired=profile.staffMfaRequired;
-    const selected = location.value; location.replaceChildren();
-    for (const item of data.locations as Row[]) location.append(new Option(item.name!,item.id!));
+    const selected = location.value || sessionStorage.getItem(`parking-location-${me.id}`) || String(profile.registrationLocationId ?? ''); location.replaceChildren();
+    for (const item of data.locations as Row[]) if(me.accountType!=='staff' || assignments.some(assignment=>assignment.locationId===item.id))location.append(new Option(item.name!,item.id!));
     if([...location.options].some(item=>item.value===selected)) location.value=selected;
     else if(me.accountType==='staff' && assignments.length)location.value=assignments[0].locationId;
     if(me.accountType==='staff' && ((me.staffMfaRequired!==false && !me.mfa) || !assignments.some(item=>item.locationId===location.value))) {
@@ -480,8 +593,8 @@ export function startDashboard(api: Api, me: Record<string, unknown>, getToken: 
     window.history.replaceState(null,'',`#workspace/${role.value}/${views[role.value][0][0]}`);
     void changed().catch(fail);
   }
-  location.addEventListener('change',()=>{roles();switchWorkspace();}); role.addEventListener('change',switchWorkspace);
-  floor.addEventListener('change',renderSpaces); search.addEventListener('input',renderSpaces);
+  location.addEventListener('change',()=>{sessionStorage.setItem(`parking-location-${me.id}`,location.value);roles();switchWorkspace();}); role.addEventListener('change',switchWorkspace);
+  floor.addEventListener('change',()=>{renderFloors();renderSpaces();}); search.addEventListener('input',renderSpaces);
   void loadLocations().catch(fail);
   const fallback = setInterval(()=>{if(!stopped && (failures > 0 || Date.now()-lastSuccess>15000)) void refresh();},15000);
   return () => {

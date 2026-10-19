@@ -41,7 +41,7 @@ int main() {
     }, {drogon::Get});
     drogon::app().registerHandler("/api/ready", [db](const drogon::HttpRequestPtr &, std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
         auto reply = std::make_shared<std::function<void(const drogon::HttpResponsePtr &)>>(std::move(callback));
-        db->execSqlAsync("SELECT version FROM schema_migrations WHERE version='006'",
+        db->execSqlAsync("SELECT version FROM schema_migrations WHERE version='009'",
             [reply](const drogon::orm::Result &rows) {
                 Json::Value body; body["status"] = rows.empty() ? "not_ready" : "ready";
                 auto response = drogon::HttpResponse::newHttpJsonResponse(body);
