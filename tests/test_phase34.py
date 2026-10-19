@@ -796,6 +796,31 @@ class Phase34(unittest.TestCase):
         self.assertTrue(result['staffAccounts'])
         self.assertTrue(all(row['email']==email for row in result['staffAccounts']))
 
+    def test_50_authenticated_load_with_parking_writes(self):
+        import os
+        from load_test import measure
+        workers = os.environ.get('PARKING_TEST_LOAD_CONCURRENCY')
+        if not workers:
+            self.skipTest('Opt in with --load-concurrency 1..500')
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            running = pool.submit(measure, API, int(workers), 15, self.driver, self.location)
+            time.sleep(2)
+            code, body = self.checkin()
+            self.assertEqual(code, 201, body)
+            self.assertEqual(self.checkout(body['session']['id'])[0], 200)
+            result = running.result()
+        result.update(scope='isolated local synthetic test; shared driver identity across clients; no staging SLA',
+                      runId=self.run_id, concurrentParkingWrites=2, businessWritesPerformed=True)
+        folder = ROOT / '.tools/load-results'
+        folder.mkdir(parents=True, exist_ok=True)
+        report = folder / (self.run_id + '-authenticated.json')
+        report.write_text(json.dumps(result, indent=2) + '\n')
+        print('Retained authenticated load report:', report, flush=True)
+        self.assertGreater(result['requests'], 0)
+        self.assertEqual(result['errors'], 0, result)
+        self.assertEqual(self.scalar('SELECT count(*) FROM parking_sessions WHERE checked_out_at IS NULL'), 0)
+        self.assertEqual(self.scalar('SELECT count(*) FROM parking_sessions WHERE checked_out_at IS NOT NULL'), 1)
+
     def test_45_driver_setup_email_failure_is_retryable_without_deletion(self):
         base=f'/api/staff/locations/{self.location}/drivers'
         email='mail-retry-'+secrets.token_hex(6)+'@example.test'

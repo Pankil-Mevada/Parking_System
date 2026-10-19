@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Parking hardware simulator</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body><main>
+<header><span class="badge">LOCAL SIMULATION · SYNTHETIC RECORDS</span><h1>One building. Six spaces.</h1><p>Test RFID arrivals, departures, sensor readings and gate faults against the real isolated parking API.</p></header>
+<p id="connection" role="status">Connecting to the isolated backend…</p>
+<section aria-labelledby="controls"><h2 id="controls">Device controls</h2>
+<div class="fields"><label>RFID card<select id="tag"><option>DEMO-CARD-A</option><option>DEMO-CARD-B</option><option>UNKNOWN-CARD</option></select></label><label>Parking space<select id="bay"></select></label></div>
+<div class="buttons"><button id="arrive">Scan + confirm arrival</button><button id="depart" class="secondary">Confirm departure</button><button id="repeat" class="secondary" disabled>Replay last event</button></div>
+<p class="note">Arrival/departure buttons simulate a confirmed passage. Sensors alone never create or end a parking session.</p>
+<div class="fields"><label>Gate condition<select id="gate"><option value="normal">Normal</option><option value="offline">Offline</option><option value="obstructed">Obstructed</option></select></label><button id="set-gate" class="secondary">Apply gate condition</button></div>
+<div class="buttons"><button id="sensor-on" class="secondary">Sensor: occupied</button><button id="sensor-off" class="secondary">Sensor: empty</button><button id="sensor-old" class="secondary">Send older reading</button></div>
+<p id="result" role="status">Ready for a test event.</p></section>
+<section aria-labelledby="spaces-heading"><h2 id="spaces-heading">Parking &amp; physical readings</h2><div id="spaces" class="spaces"></div></section>
+<section aria-labelledby="events-heading"><h2 id="events-heading">Retained event history</h2><ol id="events"></ol></section>
+<footer>Device behaviour is simulated. Parking writes use authenticated staff APIs in a separate retained test schema. No physical gate is connected. Leave this terminal running; Ctrl+C stops the simulator and preserves its records.</footer>
+</main></body></html>

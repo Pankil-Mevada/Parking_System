@@ -4,7 +4,6 @@ import { startDashboard } from './dashboard';
 const message = document.querySelector<HTMLParagraphElement>('#account-message')!;
 const login = document.querySelector<HTMLButtonElement>('#header-login')!;
 const logout = document.querySelector<HTMLButtonElement>('#account-logout')!;
-const staffSignup=document.querySelector<HTMLButtonElement>('#staff-signup')!;
 const form = document.querySelector<HTMLFormElement>('#vehicle-form')!;
 const vehicle = document.querySelector<HTMLDivElement>('#account-vehicle')!;
 const dialog = document.querySelector<HTMLDialogElement>('#vehicle-dialog')!;
@@ -53,17 +52,7 @@ async function initialize(): Promise<void> {
       return result;
     }
     login.disabled = false;
-    staffSignup.disabled=false;
-    document.querySelector('#registration-cancel')!.addEventListener('click',()=>document.querySelector<HTMLDialogElement>('#registration-choice')!.close());
-    staffSignup.addEventListener('click',()=>{
-      const choice=document.querySelector<HTMLDialogElement>('#registration-choice')!;choice.showModal();
-    });
-    document.querySelector<HTMLFormElement>('#registration-choice-form')!.addEventListener('submit',event=>{
-      event.preventDefault();const kind=document.querySelector<HTMLSelectElement>('#registration-kind')!.value;
-      if(!kind)return;sessionStorage.setItem('parking-registration-kind',kind);
-      void identity.register({redirectUri:window.location.origin+'/'});
-    });
-    login.addEventListener('click', () => { void identity.login({ redirectUri: window.location.origin + '/' + (window.location.hash==='#staff-signup'?'#staff-signup':'') }); });
+    login.addEventListener('click', () => { void identity.login({ redirectUri: window.location.origin + '/' }); });
     logout.addEventListener('click', () => {
       stopDashboard();
       void api('/api/auth/logout', 'POST').then(() => {
@@ -73,10 +62,9 @@ async function initialize(): Promise<void> {
       })
         .catch(error => { message.textContent = String(error); });
     });
-    if (!authenticated) { message.textContent = 'Drivers and employees: create an account and wait for approval. Administrators: sign in directly with your owner-provisioned account; no approval is needed. Email verification and password setup use local Mailpit.'; return; }
+    if (!authenticated) { message.textContent = 'Use Sign in / register in the header for every account. On the sign-in page, choose Register if you are new, or sign in with your existing email and password.'; return; }
     login.hidden = true; logout.hidden = false;
     let me = await api('/api/me');
-    staffSignup.hidden=true;
     document.querySelector<HTMLElement>('#product-intro')!.hidden=true;
     if(me.approvalStatus!=='approved') {
       const intent=sessionStorage.getItem('parking-registration-kind');
@@ -85,22 +73,46 @@ async function initialize(): Promise<void> {
       }
       for(const id of ['overview','location-section','preview-section'])document.getElementById(id)!.hidden=true;
       const account=document.querySelector<HTMLElement>('#account-section')!;account.hidden=false;
-      document.querySelector('#account-title')!.textContent=me.approvalStatus==='rejected'?'Account request rejected':'Your approval is pending';
-      message.textContent=me.approvalStatus==='rejected'?'Contact your administrator about this decision.':'Your account cannot access parking information until an administrator approves it.';
-      open.hidden=true;vehicle.textContent='';document.querySelector('.sidebar nav')!.replaceChildren();
-      document.querySelector('.topbar strong')!.textContent='Account approval';document.querySelector('.public-label')!.textContent='No parking access';
-      if(!me.registrationKind) {
-        const selection=document.createElement('form');selection.className='workspace-form';const label=document.createElement('label');label.textContent='Account type';
-        const kind=document.createElement('select');kind.setAttribute('aria-label','Account type');kind.required=true;kind.append(new Option('Select account type',''),new Option('Driver / user','driver'),new Option('Employee','employee'));label.append(kind);
-        const submit=document.createElement('button');submit.className='primary-button';submit.textContent='Submit for approval';selection.append(label,submit);account.append(selection);
-        selection.addEventListener('submit',event=>{event.preventDefault();submit.disabled=true;void api('/api/me/registration','POST',{kind:kind.value}).then(()=>{selection.remove();message.textContent='Your registration has been submitted. Your approval is pending.';}).catch(error=>{message.textContent=String(error);submit.disabled=false;});});
+      function showPending(profile:Record<string,unknown>):void {
+        const title=document.querySelector('#account-title')!;
+        if(profile.approvalStatus==='rejected') {
+          title.textContent='Account request rejected';message.textContent='Your request was rejected. Contact your building administrator before trying again.';
+        } else if(!profile.registrationKind) {
+          title.textContent='Complete your account setup';message.textContent='Your account is registered. Choose the access you need below. Parking information stays private until your access is activated.';
+        } else if(profile.registrationKind==='driver') {
+          title.textContent='Waiting for driver approval';message.textContent='Your driver account is registered and waiting for your building administrator to approve it. After approval, you can manage your vehicle and view your parking status and history.';
+        } else if(sessionStorage.getItem('parking-owner-setup-user')===String(profile.id)) {
+          title.textContent='Administrator access not activated yet';message.textContent='Your account is registered. The system owner must activate your administrator access before you can manage this building. You do not need to register again. Use Check approval status after the owner completes setup.';
+        } else {
+          title.textContent='Waiting for staff access';message.textContent='Your employee account is registered. Your building administrator must approve it and assign your building and staff role. If you are the building owner awaiting administrator access, ask the system owner to complete administrator setup. You do not need to register again.';
+        }
       }
-      const refresh=document.createElement('button');refresh.textContent='Check approval status';refresh.addEventListener('click',()=>{refresh.disabled=true;void api('/api/me').then(async profile=>{if(profile.approvalStatus==='approved'){refresh.remove();await activate(profile);}else{message.textContent=profile.approvalStatus==='rejected'?'Your request was rejected. Contact your administrator.':'Your approval is still pending.';refresh.disabled=false;}}).catch(error=>{message.textContent=String(error);refresh.disabled=false;});});account.append(refresh);
+      showPending(me);
+      open.hidden=true;vehicle.textContent='';document.querySelector('.sidebar nav')!.replaceChildren();
+      document.querySelector('.topbar strong')!.textContent='Account setup';document.querySelector('.public-label')!.textContent='No parking access';
+      let selection:HTMLFormElement|undefined;
+      if(!me.registrationKind && me.approvalStatus==='pending') {
+        selection=document.createElement('form');selection.className='workspace-form';const label=document.createElement('label');label.textContent='Requested access';
+        const kind=document.createElement('select');kind.setAttribute('aria-label','Requested access');kind.required=true;kind.append(new Option('Select access',''),new Option('Driver / user','driver'),new Option('Employee','employee'),new Option('Building owner / administrator','owner'));label.append(kind);
+        const help=document.createElement('p');help.textContent='Choosing administrator does not grant a role. Only the system owner can activate administrator access.';
+        const submit=document.createElement('button');submit.className='primary-button';submit.textContent='Submit access request';selection.append(label,help,submit);account.append(selection);
+        selection.addEventListener('submit',event=>{event.preventDefault();submit.disabled=true;
+          // Owner intent changes waiting copy only. Server registration remains
+          // unprivileged employee; only trusted setup or authorized assignment grants roles.
+          const requested=kind.value;const registrationKind=requested==='driver'?'driver':'employee';
+          void api('/api/me/registration','POST',{kind:registrationKind}).then(()=>{
+            if(requested==='owner')sessionStorage.setItem('parking-owner-setup-user',String(me.id));
+            else sessionStorage.removeItem('parking-owner-setup-user');
+            me={...me,registrationKind};selection?.remove();showPending(me);
+          }).catch(error=>{message.textContent=String(error);submit.disabled=false;});});
+      }
+      const refresh=document.createElement('button');refresh.textContent='Check approval status';refresh.addEventListener('click',()=>{refresh.disabled=true;void api('/api/me').then(async profile=>{me=profile;if(profile.registrationKind)selection?.remove();if(profile.approvalStatus==='approved'){refresh.remove();await activate(profile);}else{showPending(profile);refresh.disabled=false;}}).catch(error=>{message.textContent=String(error);refresh.disabled=false;});});account.append(refresh);
       refresh.className='secondary-button';
       return;
     }
     async function activate(profile:Record<string,unknown>):Promise<void> {
     me=profile;
+    sessionStorage.removeItem('parking-owner-setup-user');
     message.textContent = `Signed in as ${identity.tokenParsed?.email ?? 'your parking account'}.`;
     document.querySelector<HTMLElement>('.sidebar nav')!.hidden=false;
     document.querySelector('#account-title')!.textContent='Your account and vehicle';

@@ -29,7 +29,11 @@ def run():
     parser = argparse.ArgumentParser(description='Run tests and retain all committed records for inspection.')
     parser.add_argument('--test-name',action='append',help='Optional unittest name substring; repeat to select several groups.')
     parser.add_argument('--password-only',action='store_true',help='Use local email/password mode for matching dedicated tests.')
+    parser.add_argument('--simulator',action='store_true',help='Start the loopback hardware simulator with retained synthetic fixtures; holds the suite lock until stopped.')
+    parser.add_argument('--load-concurrency',type=int,choices=range(1,501),metavar='1..500',help='Opt in to retained authenticated read load with concurrent parking writes (test_50).')
     args = parser.parse_args()
+    if args.simulator:
+        args.password_only = True
     if not (ROOT / '.tools/test-python/psycopg').is_dir():
         raise RuntimeError('Install test prerequisites: py -m pip install --target .tools/test-python -r requirements-test.txt')
     run_id = str(uuid.uuid4())
@@ -46,28 +50,31 @@ def run():
               'status': 'preparing', 'retained': True}
     manifest.write_text(json.dumps(record, indent=2) + '\n', encoding='utf-8')
     print('Retained test run:', run_id, '\nIdentity realm:', realm_name, flush=True)
-    docker(['compose', 'up', '-d', 'identity-gateway', 'mail'])
-    # Reset only the local gateway's in-memory quotas for repeatable limiter tests.
-    # Provider sessions and development parking records are preserved.
-    docker(['compose', 'restart', 'identity-gateway'])
-    wait(IDENTITY + '/realms/parking/.well-known/openid-configuration')
-    token = admin_token()
-    realm = json.loads((ROOT / 'identity/parking-realm.json').read_text())
-    realm['realm'] = realm_name
-    realm['registrationAllowed'] = False
-    # Retained per-case container restarts make the full suite longer than the
-    # normal five-minute browser token; this applies only to synthetic test realms.
-    realm['accessTokenLifespan'] = 1800
-    realm['browserFlow']='parking-password' if args.password_only else 'parking-mfa'
-    realm['authenticationFlows'].append({
-        'alias': 'test-password-only', 'providerId': 'basic-flow', 'topLevel': True, 'builtIn': False,
-        'authenticationExecutions': [{'authenticator': 'auth-username-password-form',
-                                     'requirement': 'REQUIRED', 'priority': 10, 'authenticatorFlow': False}],
-    })
-    realm['clients'][1]['secret'] = environment()['OIDC_CLIENT_SECRET']
-    request(IDENTITY + '/admin/realms', realm, token)
-    from driver_identity_service import configure_driver_service
-    configure_driver_service(realm_name)
+    try:
+        docker(['compose', 'up', '-d', 'identity-gateway', 'mail'])
+        # Reset gateway quotas, preserving provider sessions and parking records.
+        docker(['compose', 'restart', 'identity-gateway'])
+        wait(IDENTITY + '/realms/parking/.well-known/openid-configuration')
+        token = admin_token()
+        realm = json.loads((ROOT / 'identity/parking-realm.json').read_text())
+        realm['realm'] = realm_name
+        realm['registrationAllowed'] = False
+        # Only synthetic test realms receive the longer browser token lifetime.
+        realm['accessTokenLifespan'] = 1800
+        realm['browserFlow']='parking-password' if args.password_only else 'parking-mfa'
+        realm['authenticationFlows'].append({
+            'alias': 'test-password-only', 'providerId': 'basic-flow', 'topLevel': True, 'builtIn': False,
+            'authenticationExecutions': [{'authenticator': 'auth-username-password-form',
+                                         'requirement': 'REQUIRED', 'priority': 10, 'authenticatorFlow': False}],
+        })
+        realm['clients'][1]['secret'] = environment()['OIDC_CLIENT_SECRET']
+        request(IDENTITY + '/admin/realms', realm, token)
+        from driver_identity_service import configure_driver_service
+        configure_driver_service(realm_name)
+    except Exception:
+        record['status'] = 'preparation_failed'
+        manifest.write_text(json.dumps(record, indent=2) + '\n', encoding='utf-8')
+        raise
     try:
         docker(compose + ['up', '-d', '--wait', '--wait-timeout', '60', 'test-db'])
         docker(compose + ['exec', '-T', 'test-db', 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', 'parking_test', '-d', 'parking_test', '-c',
@@ -83,7 +90,13 @@ def run():
         env['PARKING_TEST_REALM'] = realm_name
         env['PARKING_TEST_ENV_FILE'] = relative_env
         env['PARKING_TEST_PASSWORD_ONLY']='1' if args.password_only else '0'
+        if args.load_concurrency:
+            env['PARKING_TEST_LOAD_CONCURRENCY']=str(args.load_concurrency)
+        else:
+            env.pop('PARKING_TEST_LOAD_CONCURRENCY',None)
         command=[sys.executable, '-m', 'unittest', 'discover', '-s', 'tests', '-p', 'test_phase34.py', '-v']
+        if args.simulator:
+            command=[sys.executable, 'scripts/simulator_fixture.py']
         if args.test_name:
             for pattern in args.test_name:command.extend(['-k',pattern])
         subprocess.run(command, cwd=ROOT, env=env, check=True)

@@ -10,6 +10,10 @@ def python(*args):subprocess.run([sys.executable,*args],cwd=ROOT,check=True)
 
 def main():
     if os.name=='nt':raise RuntimeError('CI orchestration targets the dedicated Linux runner; use documented local test commands on Windows.')
+    python('scripts/scan_secrets.py')
+    python('-m','unittest','discover','-s','tests','-p','test_secret_scan.py','-v')
+    python('-m','unittest','discover','-s','tests','-p','test_recovery.py','-v')
+    python('-m','unittest','discover','-s','tests','-p','test_device_simulator.py','-v')
     if port_in_use(5173):raise RuntimeError('Dedicated runner port 5173 is already in use. No unrelated process was stopped.')
     path=ROOT/'.env'
     if not path.exists():

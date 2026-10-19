@@ -1,5 +1,11 @@
 # VehicleParkingSystem
 
+**Local hardware simulator:** `python scripts/test_phase34.py --simulator` starts
+six synthetic bays, RFID cards, sensor controls and gate faults at
+http://127.0.0.1:8766 after live verification. Uses isolated retained test data;
+no new simulator application or Wokwi installation is needed.
+See [local simulator walkthrough](docs/LOCAL_SIMULATOR.md).
+
 **Latest local workflow:** email/password verification, required Driver/user or
 Employee selection, and administrator approval for both account types. Pending
 accounts cannot access parking information. Signed-out visitors see only the
@@ -20,6 +26,13 @@ Database migration 006 is required; existing assigned staff/admin accounts are p
 are pending. Local metrics, encrypted PostgreSQL restore drills, load measurement,
 runtime-role verification and review bundles are implemented. The container
 dependency scan reports high/critical matches requiring triage. No launch is approved.
+
+Local recovery now also covers the stopped Keycloak development data volume and
+private configuration: `python scripts/recover_local.py`. It briefly pauses the
+source API/login service, restarts them, and verifies encrypted backups in separate
+retained resources. Use a maintenance window; see the Phase 7 guide for scope and
+repeat-restore commands. Authenticated dashboard/SSE load with concurrent parking
+actions is opt-in: `python scripts/test_phase34.py --password-only --test-name test_50 --load-concurrency 50`.
 
 For the current screens and manual role-based testing, see
 [Driver, Staff and Administrator UI guide](docs/ROLE_UI_GUIDE.md).
@@ -389,11 +402,13 @@ asserting responses, avoiding a race with container startup/WSL localhost forwar
 All five scaffold/API checks passed immediately after recreating the corrected container.
 # Account registration and approval
 
-Open http://127.0.0.1:5173/ for the product introduction. Select **Create account**,
-then **Driver / user** or **Employee**, complete provider registration and email
-verification in http://127.0.0.1:8025/. Both types wait for approval; password
-verification alone gives no parking access. If registration starts directly at
-the identity provider, the app requires the type selection before submission.
+Open http://127.0.0.1:5173/ and select the single header **Sign in / register**
+button. New users choose **Register** on the sign-in page, complete registration
+and email verification in http://127.0.0.1:8025/, then choose Requested access in
+the app: Driver/user, Employee, or Building owner/administrator. Driver and staff
+accounts wait for approval. Owner intent shows **Administrator access not
+activated yet** and remains an unprivileged employee request until trusted owner
+setup assigns real access; choosing the option never creates an administrator role.
 
 An approved administrator opens **Account approvals**, reviews the name/email/type,
 selects Approve or Reject and enters a reason. Employee approval also requires an
@@ -414,5 +429,13 @@ For an existing verified owner account, omit `--create`. This is local developme
 setup only; public registration never grants administrator privileges. Driver and
 Employee accounts still require UI approval. Migration 006 preserves assigned
 staff/admin access and requires approval for other existing accounts; data remains.
+
+Unified-entry verification on 19 October 2026: retained password-only run
+`6ead72fe-986e-452e-8080-cf153a72118b` passed both the existing driver/staff browser
+journey and expanded registration/approval browser checks (32.654 seconds). The
+checks cover the provider Register link, driver/staff/owner waiting copy, no roles
+from an owner request, pending-access denial and trusted administrator activation.
+TypeScript/production build and all 5 source/replay checks passed. Screenshots are
+retained under `.tools/browser-results/RUN_ID/`.
 
 Verify this flow: `py scripts/test_phase34.py --password-only --test-name test_48 --test-name test_49`.

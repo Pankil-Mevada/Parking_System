@@ -4,13 +4,18 @@ import json
 import subprocess
 import os
 import uuid
-from parking_tools import ROOT,cli,docker,pnpm
+from parking_tools import ROOT,cli,docker,pnpm,wsl
 from ops_tools import tool
 
 def main():
     folder=ROOT/'.tools/security-results'/str(uuid.uuid4());folder.mkdir(parents=True)
     archive=folder/'api-image.tar'
-    with archive.open('wb') as output:docker(['image','save','vehicle-parking-system-api:latest'],stdout=output)
+    if os.name=='nt':
+        # Avoid streaming a large image through wsl.exe's Windows stdout bridge.
+        linux_path=wsl(['wslpath','-u',archive.as_posix()],capture_output=True,text=True).stdout.strip()
+        docker(['image','save','--output',linux_path,'vehicle-parking-system-api:latest'])
+    else:
+        docker(['image','save','--output',str(archive),'vehicle-parking-system-api:latest'])
     env=os.environ.copy();env['GRYPE_DB_CACHE_DIR']=str(ROOT/'.tools/grype-db')
     with (folder/'grype.json').open('w',encoding='utf-8') as output:
         result=subprocess.run([tool('grype'),'docker-archive:'+str(archive),'-o','json','--fail-on','high'],stdout=output,env=env)

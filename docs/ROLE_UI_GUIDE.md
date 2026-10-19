@@ -9,13 +9,13 @@ Current local login uses **email and password only**. Microsoft Authenticator an
 other OTP apps are not required. Email verification remains enabled; messages
 arrive in local Mailpit at http://127.0.0.1:8025, not a real inbox.
 The header contains the single **Sign in / register** button. The account/vehicle
-section does not duplicate it. Staff registration remains a separate employee
-onboarding action requiring administrator approval.
+section does not duplicate it. Every role uses the same sign-in/registration
+route; account approval and server-assigned roles determine later access.
 
 ## Start and sign in
 
 ```text
-cd C:\Users\Pankil\Documents\ChatGPT\Parking_System
+cd "C:\Users\Pankil\Documents\ChatGPT\Parking_System 2"
 py scripts/start_dev.py
 ```
 
@@ -25,21 +25,29 @@ Use separate browser profiles/sessions to test different roles simultaneously.
 
 ## Register and approve all account types
 
-1. Signed-out visitors see only the product introduction. Select **Create account**.
-2. Choose **Driver / user** or **Employee**, then complete registration and Mailpit
-   email verification. Public registration cannot choose an administrator role.
-3. Both types see **Your approval is pending** and no parking data or controls.
-   Direct provider registration asks for account type on first return to the app.
+1. Signed-out visitors see the product introduction and one header button:
+   **Sign in / register**. Use it for every account. On the provider sign-in page,
+   select **Register** for a new account, or sign in with an existing account.
+2. Complete registration and Mailpit email verification. On first return, choose
+   **Driver / user**, **Employee**, or **Building owner / administrator** under
+   Requested access and select **Submit access request**.
+3. Drivers see **Waiting for driver approval**. Employees see **Waiting for staff
+   access**. Owner/setup requests see **Administrator access not activated yet**.
+   All remain blocked from parking information. The owner choice only changes
+   setup guidance in this browser; it registers an unprivileged employee request
+   on the server and never self-grants administrator permissions. On another
+   browser, the employee waiting message also explains first-administrator setup.
 4. Administrator: open **Account approvals**, review name/email/type, choose Approve
    or Reject, enter a reason, and save. For employees, select Attendant or Operator
    administrator for the selected location. Never grant admin privileges routinely.
 5. Applicant clicks **Check approval status** or signs in again. Approved drivers
    get their vehicle/session pages; employees get only assigned location controls.
-6. Administrator setup requires no approval: run
-   `py scripts/grant_local_admin.py --email admin@gmail.com --create`, open the
-   Mailpit setup email, verify email and choose a private password. Then sign in
-   directly as administrator. Do not register the owner as a pending employee.
-   Other accounts still need UI approval.
+6. For the building's first administrator, the trusted system owner runs
+   `py scripts/grant_local_admin.py --email YOUR_REGISTERED_EMAIL` after email
+   verification. It activates that account directly; another administrator is
+   not required. Click **Check approval status** to enter the assigned workspace.
+   The existing `--create` option remains available to provision an owner before
+   public registration and send the Mailpit verification/password setup email.
 
 Employee selection grants no privileges. Existing vehicle/session history cannot
 be converted into an employee identity. No personal vehicle under employee accounts.

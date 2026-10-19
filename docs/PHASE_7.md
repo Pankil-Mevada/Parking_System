@@ -79,6 +79,77 @@ findings, or scanner failures. Read the retained report before interpreting an e
   SHA-256 file manifest and acceptance gates. Dirty builds get a distinct working
   version; they are not represented as clean commit builds. Nothing is pushed.
 
+## Local identity and parking recovery continuation (19 October 2026)
+
+`python scripts/recover_local.py` creates an encrypted cold checkpoint of the
+current local installation and runs a retained restore drill. Run it during a
+local maintenance window with no active users or other test runs. It briefly
+stops the existing API and identity container IDs and restarts both in `finally`;
+it does not recreate source services or remove their data. The PostgreSQL dump,
+stopped Keycloak data volume and private `.env` are encrypted with pinned age.
+Private configuration is decrypted in memory during verification. Keys remain in
+ignored `.tools/backup-keys`; protect and separately retain them with the backups.
+
+Repeat from a checkpoint without stopping the source:
+
+```text
+python scripts/recover_local.py --restore .tools/backups/CHECKPOINT_UUID
+python -m unittest discover -s tests -p test_recovery.py -v
+```
+
+Restore creates fresh PostgreSQL databases, identity volumes and internal Docker
+networks. It uses the original identity image ID, does not publish the duplicate
+login service, and blocks its outbound SMTP. On Windows the verifier uses WSL
+`nsenter` and Python 3 to query loopback within that isolated network namespace;
+on Linux it requires equivalent local namespace access. It compares all realm/user
+IDs through a digest and tests restored administrator and application-service
+credentials. Reports contain counts and flags, not tokens, passwords or user lists.
+Duplicate identity containers stop after verification; their volumes, networks,
+reports and restored databases remain. Failed copies are retained too.
+
+This verifies local H2 recovery with the exact image. It does not migrate identity
+storage to production PostgreSQL, prove end-user password/OTP browser recovery,
+or exercise a complete app against both restored services. Those acceptance items
+remain open. Keycloak documents that its development file database must be replaced
+before production and that realm export/import has backup limitations:
+[database guidance](https://www.keycloak.org/server/db),
+[export/import limitations](https://www.keycloak.org/server/importExport).
+
+Authenticated load is now an explicit retained integration scenario:
+
+```text
+python scripts/test_phase34.py --password-only --test-name test_50 --load-concurrency 50
+```
+
+Choose 1–500 clients. The 15-second scenario uses a shared synthetic driver token
+for dashboard/SSE reads while staff perform check-in/out. It checks request errors
+and final session/history invariants and writes `.tools/load-results/RUN_ID-authenticated.json`.
+It is a provisional local scenario, not 500 distinct identities, sustained capacity,
+or an agreed latency threshold. Default regression runs skip this opt-in load case.
+The runner now records `preparation_failed` if setup fails before test execution.
+
+Local recovery evidence retained on 19 October: checkpoint
+`a7d37010-f3db-4a0d-a5f8-c00df23d24c1`, successful restore
+`bf2ba638dc0f4498839bfd094bdc944c`, 316.719 seconds including local tool overhead.
+All parking table counts, 41 realms/420 identity IDs, administrator login and
+application-service credentials matched. Two earlier failed copies remain retained:
+the first could not reach the internal network from Windows; the second reached
+the server but could not complete non-loopback authentication. Namespace-loopback
+verification resolved those transport/policy issues without changing realm policy.
+Recovery safety tests: 3 passed; live operations: 4 passed; API smoke checks: 2 passed.
+Frontend dependency audit: zero findings. The API image scan was interrupted under
+low-memory conditions and is unaccepted; prior dependency triage remains open.
+
+Serialized password-only browser/login/load run
+`380f1ced-2617-470f-a287-ecfbaec53a40`: 3 passed in 167.355 seconds. The browser
+measured 1.578 seconds from arrival confirmation to the driver's update. The
+50-client authenticated read scenario completed 496 requests with zero errors,
+peak 48 in flight, p95 2391 ms and p99 3422 ms while check-in/out completed.
+These samples are provisional and do not establish 500-user acceptance or a
+latency SLA. The earlier concurrent setup attempt timed out under memory pressure;
+its records remain. The optimized table-count restore was separately rerun and
+passed in 39.329 seconds on fresh database `restore_dafdbf680b6d4a9a906b551565ed9491`.
+
 ## Least-privilege account
 
 ```text
@@ -109,8 +180,33 @@ runs unit/API/database/browser checks, reapplies migrations, verifies operations
 performs an encrypted restore drill and scans dependencies. It performs no deployment
 or database cleanup. Configure a dedicated test host with Docker Compose, browser
 system libraries and outbound package access. Do not use a production host.
-Automatic branch/PR triggers, a dedicated lint configuration, secret scanner,
-runner access review and retained identity recovery are still required CI work.
+`.github/workflows/source-checks.yml` now adds automatic main/codex-branch push
+and pull-request checks on an isolated GitHub-hosted runner. It runs the tracked
+snapshot secret scanner, its regression tests, Python syntax compilation, locked
+frontend installation, Node tests and the TypeScript/production build. It needs
+no application secrets or database and does not access the persistent integration
+runner. The integration workflow remains manual; do not automatically execute
+untrusted pull requests on that persistent runner.
+
+Run the scanner locally with `python scripts/scan_secrets.py`. Findings include
+file, line and rule only; values are redacted. The scanner detects selected token,
+private-key and credential-URL signatures in current tracked files. It excludes
+Git history, ignored configuration and untracked files; it is not comprehensive
+secret detection. Exit codes are 0 (no matches), 1 (findings), 2 (scan failure).
+The dedicated integration runner also runs this scan before starting services.
+
+A dedicated lint configuration, broader/history secret detection, runner access
+review and retained identity recovery remain required CI work. GitHub execution
+of either workflow is still unverified; adding workflow source does not activate
+branch protection or establish release acceptance.
+
+### Resume verification, 19 October 2026
+
+In the fresh `Parking_System 2` checkout: locked frontend install, TypeScript and
+production build, 5 Node checks, secret-scanner tests and Python syntax compilation
+were run locally. Python compilation reports an existing invalid-escape warning
+in `scripts/bootstrap_admin.py`. Application/identity/database/browser runtime
+verification has not been repeated here. No test or production records were reset.
 
 ## Launch work still pending
 

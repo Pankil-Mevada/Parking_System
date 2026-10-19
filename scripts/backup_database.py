@@ -62,13 +62,21 @@ def restore(folder):
         process.stdout.close();process.stdout=None
     _,error=process.communicate(timeout=60)
     if process.returncode:raise RuntimeError('Backup decryption failed; restore database retained.')
-    for table,expected in manifest['tableCounts'].items():
-        # Table names originated in the source catalog; quote as SQL identifiers.
+    queries=[]
+    for table in manifest['tableCounts']:
+        # Quote both the SQL identifier and the separate JSON name literal.
         quoted='"'+table.replace('"','""')+'"'
-        result=docker(COMPOSE+['exec','-T','restore-db','psql','-X','-At','-U','parking_restore','-d',name,'-c','SELECT count(*) FROM '+quoted],capture_output=True,text=True)
-        if int(result.stdout.strip())!=expected:raise RuntimeError('Restored table count differs: '+table)
+        literal="'"+table.replace("'","''")+"'"
+        queries.append("SELECT json_build_object('table',"+literal+",'count',count(*)) FROM "+quoted+';')
+    if queries:
+        # A single invocation avoids starting WSL once per table on Windows.
+        result=docker(COMPOSE+['exec','-T','restore-db','psql','-X','-At','-v','ON_ERROR_STOP=1','-U','parking_restore','-d',name,'-c','\n'.join(queries)],capture_output=True,text=True)
+        rows=[json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+        actual={row['table']:row['count'] for row in rows}
+        if actual!=manifest['tableCounts']:raise RuntimeError('Restored table counts differ from the checkpoint.')
     report={'database':name,'verifiedTableCounts':True,'elapsedSeconds':round(time.monotonic()-started,3),'identityRestored':False,'retained':True}
     path=folder/('restore-'+name+'.json');path.write_text(json.dumps(report,indent=2)+'\n');print(json.dumps(report,indent=2))
+    return report
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--restore');parser.add_argument('--drill',action='store_true');args=parser.parse_args()
